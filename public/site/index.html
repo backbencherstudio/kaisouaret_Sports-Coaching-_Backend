@@ -2,36 +2,38 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Server Status • API</title>
+    <title>Educational App • Server Status</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Operational status and quick links for the backend API."
+      content="Operational status and quick links for the Educational App backend API."
     />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <style>
       :root {
-        --bg: #0b1020;
-        --panel: #0f172a;
-        --ink: #e5e7eb;
-        --muted: #9ba3af;
-        --brand: #5b9dff;
-        --ok: #22c55e;
+        --bg: #0a0e1a;
+        --panel: #111827;
+        --ink: #f9fafb;
+        --muted: #9ca3af;
+        --brand: #6366f1;
+        --brand-light: #818cf8;
+        --ok: #10b981;
         --warn: #f59e0b;
         --err: #ef4444;
-        --border: #1f2a44;
-        --shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
-        --radius: 14px;
+        --border: #1f2937;
+        --shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+        --radius: 16px;
       }
       @media (prefers-color-scheme: light) {
         :root {
-          --bg: #f7fafc;
+          --bg: #f8fafc;
           --panel: #ffffff;
           --ink: #0f172a;
-          --muted: #475569;
-          --border: #e5e7eb;
-          --brand: #2563eb;
-          --shadow: 0 8px 28px rgba(0, 0, 0, 0.08);
+          --muted: #64748b;
+          --border: #e2e8f0;
+          --brand: #6366f1;
+          --brand-light: #818cf8;
+          --shadow: 0 2px 16px rgba(0, 0, 0, 0.06);
         }
       }
       * {
@@ -43,60 +45,134 @@
       }
       body {
         margin: 0;
-        background: radial-gradient(
-            1200px 800px at 80% -10%,
-            rgba(91, 157, 255, 0.18),
-            transparent 60%
+        background:
+          linear-gradient(
+            135deg,
+            rgba(10, 14, 26, 0.92) 0%,
+            rgba(10, 14, 26, 0.85) 100%
           ),
-          var(--bg);
+          url('/storage/server-room.jpg') center/cover no-repeat fixed;
         color: var(--ink);
-        font:
-          16px/1.6 system-ui,
-          -apple-system,
-          Segoe UI,
-          Roboto,
-          Inter,
-          Arial,
-          sans-serif;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+          'Inter', sans-serif;
+        font-size: 15px;
+        line-height: 1.6;
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
         display: flex;
         align-items: center;
         justify-content: center;
-        padding: 32px;
+        padding: 24px;
+        min-height: 100vh;
       }
       .wrap {
         width: 100%;
-        max-width: 980px;
+        max-width: 1100px;
       }
       header {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 16px;
-        margin-bottom: 20px;
+        margin-bottom: 32px;
       }
-      .brand {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        text-decoration: none;
-        color: inherit;
-      }
-      .logo {
-        width: 40px;
-        height: 40px;
-        border-radius: 10px;
-        display: grid;
-        place-items: center;
-        background: linear-gradient(135deg, #1f3a8a, #0ea5e9);
+      .card {
+        position: relative;
+        background: rgba(17, 24, 39, 0.35);
+        border-radius: var(--radius);
         box-shadow: var(--shadow);
-        color: white;
+        overflow: hidden;
+        opacity: 0;
+        transform: translateY(30px);
+        animation:
+          cardFadeIn 0.9s cubic-bezier(0.23, 1.01, 0.32, 1) forwards,
+          cardPulseScale 2.5s infinite ease-in-out 0.9s;
+      }
+
+      .card::before {
+        content: '';
+        position: absolute;
+        top: -3px;
+        left: -3px;
+        right: -3px;
+        bottom: -3px;
+        border-radius: calc(var(--radius) + 3px);
+        z-index: 0;
+        background: linear-gradient(
+          120deg,
+          rgba(0, 212, 255, 0.28) 0%,
+          rgba(91, 157, 255, 0.22) 50%,
+          rgba(99, 102, 241, 0.24) 100%
+        );
+        background-size: 400% 400%;
+        filter: blur(4px);
+        opacity: 0.35;
+        animation: borderGlowMove 6s ease-in-out infinite;
+      }
+
+      @keyframes borderGlowMove {
+        0% {
+          background-position: 0% 50%;
+        }
+        50% {
+          background-position: 100% 50%;
+        }
+        100% {
+          background-position: 0% 50%;
+        }
+      }
+
+      .card::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        border-radius: var(--radius);
+        border: 2px solid rgba(0, 212, 255, 0.13);
+        box-shadow:
+          0 0 18px 2px rgba(0, 212, 255, 0.1),
+          0 0 32px 6px rgba(91, 157, 255, 0.08);
+        z-index: 1;
+        pointer-events: none;
+        animation: cardPulse 2.5s infinite ease-in-out;
+      }
+
+      @keyframes cardPulse {
+        0%,
+        100% {
+          border-color: rgba(0, 212, 255, 0.13);
+          box-shadow:
+            0 0 18px 2px rgba(0, 212, 255, 0.1),
+            0 0 32px 6px rgba(91, 157, 255, 0.08);
+        }
+        50% {
+          border-color: rgba(0, 212, 255, 0.28);
+          box-shadow:
+            0 0 32px 8px rgba(0, 212, 255, 0.18),
+            0 0 60px 16px rgba(91, 157, 255, 0.18);
+        }
+      }
+
+      @keyframes cardPulseScale {
+        0%,
+        100% {
+          transform: scale(1);
+        }
+        50% {
+          transform: scale(1.015);
+        }
+      }
+
+      .card > * {
+        position: relative;
+        z-index: 2;
       }
       .brand h1 {
-        font-size: 20px;
-        font-weight: 700;
-        letter-spacing: 0.2px;
+        font-size: 22px;
+        font-weight: 600;
+        letter-spacing: -0.3px;
         margin: 0;
       }
       .grid {
@@ -110,110 +186,137 @@
         }
       }
       .card {
-        background: var(--panel);
+        background: rgba(
+          17,
+          24,
+          39,
+          0.35
+        ); /* semi-transparent dark, you can adjust the alpha */
         border: 1px solid var(--border);
         border-radius: var(--radius);
         box-shadow: var(--shadow);
+        overflow: hidden;
+        opacity: 0;
+        transform: translateY(30px);
+        animation: cardFadeIn 0.9s cubic-bezier(0.23, 1.01, 0.32, 1) forwards;
+      }
+
+      @keyframes cardFadeIn {
+        0% {
+          opacity: 0;
+          transform: translateY(30px);
+        }
+        100% {
+          opacity: 1;
+          transform: translateY(0);
+        }
       }
       .hero {
-        padding: 28px 28px 8px;
+        padding: 32px 32px 16px;
       }
       .hero h2 {
-        margin: 0 0 8px;
-        font-size: 28px;
-        letter-spacing: 0.2px;
+        margin: 0 0 12px;
+        font-size: 50px;
+        text-align: center;
+        font-weight: 00;
+        letter-spacing: -0.5px;
+        background: linear-gradient(135deg, var(--ink), var(--muted));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
       }
       .hero p {
+        text-align: center;
         margin: 0;
         color: var(--muted);
+        font-size: 15px;
       }
       .status {
         display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 18px 28px 26px;
+        align-items: flex-start;
+        gap: 16px;
+        padding: 16px 32px 32px;
       }
       .badge {
-        font-size: 12px;
+        font-size: 11px;
         font-weight: 600;
-        letter-spacing: 0.4px;
+        letter-spacing: 0.5px;
         text-transform: uppercase;
-        padding: 6px 10px;
-        border-radius: 999px;
-        border: 1px solid var(--border);
-        background: rgba(255, 255, 255, 0.03);
+        padding: 8px 14px;
+        border-radius: 8px;
+        border: none;
+        background: rgba(255, 255, 255, 0.05);
+        white-space: nowrap;
       }
       .badge.ok {
         color: var(--ok);
-        border-color: rgba(34, 197, 94, 0.35);
+        background: rgba(16, 185, 129, 0.15);
       }
       .badge.warn {
         color: var(--warn);
-        border-color: rgba(245, 158, 11, 0.4);
+        background: rgba(245, 158, 11, 0.15);
       }
       .badge.err {
         color: var(--err);
-        border-color: rgba(239, 68, 68, 0.4);
+        background: rgba(239, 68, 68, 0.15);
       }
       .muted {
         color: var(--muted);
       }
       .links {
-        padding: 22px 24px;
+        padding: 0 32px 32px;
         display: grid;
-        gap: 12px;
+        gap: 10px;
       }
       .link {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 12px;
-        padding: 14px 16px;
+        padding: 16px 18px;
         border-radius: 12px;
         border: 1px solid var(--border);
         text-decoration: none;
         color: inherit;
-        transition:
-          transform 0.15s ease,
-          background 0.15s ease;
-        background: linear-gradient(
-          180deg,
-          rgba(255, 255, 255, 0.02),
-          rgba(0, 0, 0, 0.02)
-        );
+        transition: all 0.2s ease;
+        background: rgba(255, 255, 255, 0.01);
       }
       .link:hover {
-        transform: translateY(-1px);
-        background: rgba(91, 157, 255, 0.08);
+        transform: translateX(4px);
+        background: rgba(99, 102, 241, 0.08);
+        border-color: rgba(99, 102, 241, 0.3);
       }
       .link small {
         color: var(--muted);
+        font-size: 13px;
       }
       .pill {
         font-size: 11px;
-        padding: 4px 8px;
-        border-radius: 999px;
-        background: rgba(91, 157, 255, 0.12);
-        color: var(--brand);
-        border: 1px solid rgba(91, 157, 255, 0.25);
+        font-weight: 500;
+        padding: 6px 10px;
+        border-radius: 6px;
+        background: rgba(99, 102, 241, 0.1);
+        color: var(--brand-light);
+        font-family: ui-monospace, monospace;
       }
       .aside {
-        padding: 18px;
+        padding: 24px;
         display: grid;
-        gap: 14px;
+        gap: 16px;
       }
       .kvs {
         display: grid;
-        gap: 8px;
+        gap: 10px;
       }
       .kv {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 12px;
-        padding: 10px 12px;
-        border: 1px dashed var(--border);
+        padding: 12px 14px;
+        border: 1px solid var(--border);
         border-radius: 10px;
+        background: rgba(255, 255, 255, 0.01);
       }
       code,
       pre {
@@ -221,162 +324,115 @@
       }
       pre {
         margin: 0;
-        background: rgba(255, 255, 255, 0.03);
+        background: rgba(0, 0, 0, 0.2);
         border: 1px solid var(--border);
-        border-radius: 12px;
-        padding: 14px;
+        border-radius: 10px;
+        padding: 12px 14px;
         overflow: auto;
+        font-size: 13px;
       }
       footer {
-        margin-top: 18px;
+        margin-top: 24px;
         text-align: center;
         color: var(--muted);
-        font-size: 12px;
+        font-size: 13px;
       }
       .cta {
         margin-left: auto;
         display: inline-flex;
         align-items: center;
-        gap: 8px;
+        gap: 10px;
         border: 1px solid var(--border);
-        background: transparent;
+        background: var(--panel);
         color: var(--ink);
-        padding: 10px 14px;
+        padding: 10px 16px;
         border-radius: 10px;
         cursor: pointer;
-        transition:
-          background 0.15s ease,
-          transform 0.12s ease;
+        transition: all 0.2s ease;
+        font-weight: 500;
       }
       .cta:hover {
-        background: rgba(255, 255, 255, 0.04);
-        transform: translateY(-1px);
+        background: rgba(99, 102, 241, 0.1);
+        border-color: rgba(99, 102, 241, 0.4);
+        transform: scale(1.02);
       }
       .dot {
-        width: 10px;
-        height: 10px;
+        width: 8px;
+        height: 8px;
         border-radius: 999px;
         background: var(--warn);
-        box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.08);
+        box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.2);
+        animation: pulse 2s ease-in-out infinite;
       }
       .dot.ok {
         background: var(--ok);
-        box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.12);
+        box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.2);
       }
       .dot.err {
         background: var(--err);
-        box-shadow: 0 0 0 6px rgba(239, 68, 68, 0.12);
+        box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.2);
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.6;
+        }
       }
     </style>
   </head>
   <body>
     <div class="wrap">
-      <header>
-        <a class="brand" href="/">
-          <div class="logo" aria-hidden="true">
-            <!-- minimalist spark logo -->
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              aria-hidden="true"
-            >
-              <path
-                d="M12 2l2.6 6.9L22 10l-6.5 4.6L17.3 22 12 17.9 6.7 22l1.8-7.4L2 10l7.4-1.1L12 2z"
-                fill="white"
-                opacity=".9"
-              />
-            </svg>
-          </div>
-          <h1 id="brandTitle">Backend API</h1>
-        </a>
-        <button id="refreshBtn" class="cta" title="Refresh status">
-          <span id="dot" class="dot"></span>
-          Refresh
-        </button>
-      </header>
-
-      <main class="grid">
-        <!-- Left: Hero + Links -->
+      <main>
         <section class="card">
           <div class="hero">
-            <h2>{project name} Server is running here</h2>
+            <h2>Server is running Educational</h2>
             <p class="muted">
-              Welcome! Use the quick links below or hit the API root. This page
-              auto-checks backend status.
+              Welcome! The backend API is up and running. Use the quick links
+              below to explore endpoints and documentation.
             </p>
-          </div>
-          <div class="status">
-            <span id="statusBadge" class="badge warn">Checking…</span>
-            <div style="flex: 1">
-              <div class="muted" style="font-size: 14px">
-                <strong>Endpoint:</strong> <code id="endpoint">/api</code>
-              </div>
-              <div style="margin-top: 6px">
-                <pre id="result">Waiting for response…</pre>
-              </div>
-            </div>
           </div>
 
           <div class="links">
             <a class="link" href="/api/docs">
               <div>
-                <div><strong>API Documentation</strong></div>
-                <small>OpenAPI (Swagger UI)</small>
+                <div><strong>📚 API Documentation</strong></div>
+                <small>Interactive Swagger UI</small>
               </div>
               <span class="pill">/api/docs</span>
             </a>
 
             <a class="link" href="/api">
               <div>
-                <div><strong>API Root</strong></div>
-                <small>Environment & simple health</small>
+                <div><strong>🏠 API Root</strong></div>
+                <small>Health check & environment info</small>
               </div>
               <span class="pill">/api</span>
             </a>
 
             <a class="link" href="/public">
               <div>
-                <div><strong>Public Files</strong></div>
-                <small>Static assets served by Nest</small>
+                <div><strong>📁 Public Files</strong></div>
+                <small>Static assets & resources</small>
               </div>
               <span class="pill">/public</span>
             </a>
 
             <a class="link" href="/storage">
               <div>
-                <div><strong>Storage</strong></div>
-                <small>Uploaded files (if enabled)</small>
+                <div><strong>💾 Storage</strong></div>
+                <small>User uploads & media files</small>
               </div>
               <span class="pill">/storage</span>
             </a>
           </div>
         </section>
-
-        <!-- Right: Facts -->
-        <aside class="card aside">
-          <div class="kvs">
-            <div class="kv"><span>Host</span> <code id="host">—</code></div>
-            <div class="kv"><span>Time</span> <code id="time">—</code></div>
-            <div class="kv"><span>Uptime</span> <code id="uptime">—</code></div>
-            <div class="kv">
-              <span>Version</span> <code id="version">—</code>
-            </div>
-            <div class="kv">
-              <span>Environment</span> <code id="env">—</code>
-            </div>
-          </div>
-          <div class="muted" style="font-size: 12px">
-            Tip: If <code>/api</code> returns 404, it’s likely because your
-            routes are prefixed by
-            <code>app.setGlobalPrefix('api')</code> (which is expected).
-          </div>
-        </aside>
       </main>
 
       <footer>
-        <span id="footerText">© <span id="year"></span> Backend API</span>
+        <span id="footerText">© <span id="year"></span> Educational App</span>
       </footer>
     </div>
 
@@ -453,6 +509,15 @@
           document.getElementById('env').textContent = env;
           document.getElementById('uptime').textContent = uptime;
 
+          // Update app name dynamically from API response
+          // Check multiple possible locations for the app name
+          const appName =
+            (body && body.appName) ||
+            (body && body.data && body.data.appName) ||
+            (body && body.name) ||
+            'Educational App'; // Fallback
+          updateAppName(appName);
+
           if (status >= 200 && status < 400) {
             setStatus('ok', body ?? 'OK');
           } else if (status >= 400 && status < 500) {
@@ -462,16 +527,35 @@
           }
         } catch (e) {
           setStatus('err', e?.message || String(e));
+          // Even if API fails, try to set a default app name
+          updateAppName('Educational App');
         }
       }
 
-      // set titles & footer
-      const appName = (document.title.split('•')[0] || 'Backend API').trim();
-      document.getElementById('brandTitle').textContent = appName;
+      // Function to update app name throughout the page
+      function updateAppName(name) {
+        // Update page title
+        document.title = `${name} • Server Status`;
+
+        // Update brand title in header
+        document.getElementById('brandTitle').textContent = name;
+
+        // Update main heading
+        const mainHeading = document.querySelector('.hero h2');
+        if (mainHeading) {
+          mainHeading.textContent = `${name} API Server`;
+        }
+
+        // Update footer
+        const year = new Date().getFullYear();
+        const footerText = document.getElementById('footerText');
+        if (footerText) {
+          footerText.innerHTML = `© <span id="year">${year}</span> ${name}`;
+        }
+      }
+
+      // Set initial values
       document.getElementById('year').textContent = new Date().getFullYear();
-      document.getElementById('footerText').firstChild &&
-        (document.getElementById('footerText').firstChild.textContent =
-          `© ${new Date().getFullYear()} ${appName} `);
 
       document.getElementById('refreshBtn').addEventListener('click', check);
       // initial run

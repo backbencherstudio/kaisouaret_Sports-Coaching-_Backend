@@ -23,12 +23,26 @@ export class AppController {
 
   @Get('/')
   root() {
-    return { ok: true, message: 'Server is running' };
+    return {
+      ok: true,
+      message: 'Server is running',
+      appName: process.env.APP_NAME || 'Application',
+      version: process.env.npm_package_version || '1.0.0',
+      env: process.env.NODE_ENV || 'development',
+      uptimeSec: Math.floor(process.uptime()),
+    };
   }
 
-  @Get()
-  getHello(): string {
-    return this.appService.getHello();
+  @Get('')
+  getApiStatus() {
+    return {
+      ok: true,
+      message: 'Server is running',
+      appName: process.env.APP_NAME || 'Application',
+      version: process.env.npm_package_version || '1.0.0',
+      env: process.env.NODE_ENV || 'development',
+      uptimeSec: Math.floor(process.uptime()),
+    };
   }
 
   @Get('test-chunk-stream')
