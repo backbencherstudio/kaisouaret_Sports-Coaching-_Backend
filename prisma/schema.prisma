@@ -41,9 +41,9 @@ model User {
   approved_at  DateTime?
   availability String?
 
-  google_id  String? @unique
+  google_id   String? @unique
   facebook_id String? @unique
-  apple_id   String? @unique
+  apple_id    String? @unique
 
   email      String? @unique
   username   String? @unique
@@ -54,6 +54,13 @@ model User {
   domain     String? @unique
   avatar     String?
 
+  // profile fields for athletes
+  bio        String?
+  objectives String?
+  age        Int?
+  goals      String?
+  sports     String?
+
   phone_number  String?
   country       String?
   state         String?
@@ -62,6 +69,8 @@ model User {
   zip_code      String?
   gender        String?
   date_of_birth DateTime? @db.Date
+  location      String?
+  referral      String?
 
   // billing id. e.g. stripe customer id
   billing_id String?
@@ -86,8 +95,69 @@ model User {
   roles                Role[]
   role_users           RoleUser[]
   payment_transactions PaymentTransaction[]
+  coach_profile        CoachProfile?
+  bookings             Booking[]
 
   @@map("users")
+}
+
+model CoachProfile {
+  id         String   @id @default(cuid())
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+  status     Int?     @default(1) @db.SmallInt
+
+  user_id String @unique
+  user    User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  primary_specialty        String?
+  specialties              String[]
+  experience_level         String?
+  certifications           String[]
+  hourly_rate              Decimal?
+  hourly_currency          String?
+  is_verified              Int?      @default(0) @db.SmallInt
+  registration_fee_paid    Int?      @default(0) @db.SmallInt
+  registration_fee_paid_at DateTime?
+
+  session_duration_minutes Int?     @default(60)
+  session_price            Decimal? @default(55)
+
+  // subscription tracking
+  subscription_active     Int?      @default(0) @db.SmallInt
+  subscription_started_at DateTime?
+  subscription_expires_at DateTime?
+  subscription_provider   String?
+  subscription_reference  String?
+
+  rgpd_laws_agreement Boolean @default(false)
+
+  bookings        Booking[]
+  sessionsPackage SessionsPackage[]
+
+  @@map("coach_profiles")
+}
+
+model SessionsPackage {
+  id         String    @id @default(cuid())
+  created_at DateTime  @default(now())
+  updated_at DateTime  @default(now())
+  deleted_at DateTime?
+
+  coach_id         String
+  coach_profile_id String
+  coach_profile    CoachProfile @relation(fields: [coach_profile_id], references: [id], onDelete: Cascade)
+
+  title              String?
+  description        String?
+  number_of_sessions Int?
+  days_validity      Int?
+  total_price        Decimal?
+  currency           String?
+
+  bookings Booking[]
+
+  @@map("sessions_packages")
 }
 
 model Ucode {
@@ -251,7 +321,67 @@ model PaymentTransaction {
   paid_amount      Decimal?
   paid_currency    String?
 
+  bookings Booking[]
+
   @@map("payment_transactions")
+}
+
+// Booking entities: a user (athlete) books a coach (via CoachProfile). 
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+model Booking {
+  id         String    @id @default(cuid())
+  created_at DateTime  @default(now())
+  updated_at DateTime  @default(now())
+  deleted_at DateTime?
+  title      String?
+
+  coach_id String
+  user_id  String
+  user     User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  coach_profile_id String
+  coach_profile    CoachProfile @relation(fields: [coach_profile_id], references: [id], onDelete: Cascade)
+
+  appointment_date DateTime
+  session_time     DateTime?
+  duration_minutes Int?     @default(60)
+  session_price    Decimal? @default(55)
+  location         String?  @default("offline")
+
+  // optional session-package relation when a booking is created from a package
+  session_package_id String?
+  sessionPackage      SessionsPackage? @relation(fields: [session_package_id], references: [id], onDelete: Cascade)
+
+  description           String?
+  number_of_sessions    Int?
+  days_validity         Int?
+  total_completed_session Int? @default(0)
+
+  // validation token given to the user after successful payment to validate completion
+  validation_token     String?
+  token_expires_at     DateTime?
+
+  total_amount Decimal?
+  currency     String?
+
+  payment_transaction_id String?
+  payment_transaction    PaymentTransaction? @relation(fields: [payment_transaction_id], references: [id])
+
+  status BookingStatus @default(PENDING)
+
+  notes    String?
+  rating   Int?
+  feedback String?
+
+  google_map_link String?
+
+  @@map("bookings")
 }
 
 // ---------Start Chat schema---------
