@@ -91,4 +91,18 @@ export class DateHelper {
 
     return date2Data.diff(date1Data, unit, float);
   }
+
+  static calculateAge(dateOfBirth: string): number {
+    const dob = new Date(dateOfBirth);
+    const today = new Date();
+    let age = today.getFullYear() - dob.getFullYear();
+    const monthDifference = today.getMonth() - dob.getMonth();
+    if (
+      monthDifference < 0 ||
+      (monthDifference === 0 && today.getDate() < dob.getDate())
+    ) {
+      age--;
+    }
+    return age;
+  }
 }

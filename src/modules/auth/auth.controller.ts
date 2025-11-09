@@ -25,6 +25,7 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import appConfig from '../../config/app.config';
 import { AuthGuard } from '@nestjs/passport';
 import { AppleAuthGuard } from './guards/apple-auth.guard';
+import { CreateCoachProfileDto } from './dto/create-coach-profile.dto';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -56,27 +57,18 @@ export class AuthController {
   async create(@Body() data: CreateUserDto, @Req() req: Request) {
     try {
       const name = data.name;
-      const first_name = data.first_name;
-      const last_name = data.last_name;
       const email = data.email;
+      const location = data.location;
       const password = data.password;
       const type = data.type;
+      const phone_number = data.phone_number;
+      const date_of_birth = data.date_of_birth;
+      const bio = data.bio;
 
       if (!name) {
         throw new HttpException('Name not provided', HttpStatus.UNAUTHORIZED);
       }
-      if (!first_name) {
-        throw new HttpException(
-          'First name not provided',
-          HttpStatus.UNAUTHORIZED,
-        );
-      }
-      if (!last_name) {
-        throw new HttpException(
-          'Last name not provided',
-          HttpStatus.UNAUTHORIZED,
-        );
-      }
+
       if (!email) {
         throw new HttpException('Email not provided', HttpStatus.UNAUTHORIZED);
       }
@@ -89,10 +81,12 @@ export class AuthController {
 
       const response = await this.authService.register({
         name: name,
-        first_name: first_name,
-        last_name: last_name,
         email: email,
+        phone_number: phone_number,
+        location: location,
+        date_of_birth: date_of_birth,
         password: password,
+        bio: bio,
         type: type,
       });
 
@@ -129,6 +123,25 @@ export class AuthController {
       });
 
       res.json(response);
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message,
+      };
+    }
+  }
+
+  // setup profile
+  @ApiOperation({ summary: 'Setup user profile' })
+  @UseGuards(JwtAuthGuard)
+  @Post('setup-profile')
+  async setupProfile(@Req() req: Request, @Body() data: any) {
+    try {
+      const user_id = req.user.userId;
+
+      const response = await this.authService.setupProfile(user_id, data);
+
+      return response;
     } catch (error) {
       return {
         success: false,
@@ -178,7 +191,6 @@ export class AuthController {
     }
   }
 
-  
   // google login
   @ApiOperation({ summary: 'Google login' })
   @Get('google')
@@ -229,7 +241,6 @@ export class AuthController {
     });
   }
 
-
   // update user
   @ApiOperation({ summary: 'Update user' })
   @ApiBearerAuth()
@@ -269,6 +280,30 @@ export class AuthController {
         success: false,
         message: 'Failed to update user',
       };
+    }
+  }
+
+  @ApiOperation({ summary: 'Create coach registration payment intent' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Post('coach/registration/create-payment')
+  async createCoachRegistrationPayment(
+    @Req() req: Request,
+    @Body() body: { amount?: number; currency?: string },
+  ) {
+    try {
+      const user_id = req.user.userId;
+      const amount = body.amount ?? 49; // default registration fee
+      const currency = body.currency ?? 'usd';
+
+      const response = await this.authService.createCoachRegistrationPayment(
+        user_id,
+        amount,
+        currency,
+      );
+      return response;
+    } catch (error) {
+      return { success: false, message: error.message };
     }
   }
 

@@ -80,6 +80,10 @@ export default () => ({
       secret: process.env.PAYPAL_SECRET,
       api: process.env.PAYPAL_API,
     },
+    registration: {
+      coach_registration_fee: parseFloat(process.env.COACH_REGISTRATION_FEE ?? '10'),
+      coach_subscription_fee: parseFloat(process.env.COACH_SUBSCRIPTION_FEE ?? '49'),
+    },
   },
 
   /**
