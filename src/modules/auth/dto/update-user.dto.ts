@@ -73,5 +73,54 @@ export class UpdateUserDto extends PartialType(CreateUserDto) {
   })
   avatar?: string;
 
+  @IsOptional()
+  @ApiProperty({
+    description: 'Bio',
+    example: 'Passionate athlete dedicated to ...',
+  })
+  bio?: string;
+
+  @IsOptional()
+  @ApiProperty({
+    description: 'Objectives',
+    example: 'To continuously improve my performance',
+  })
+  objectives?: string;
+
+  @IsOptional()
+  @ApiProperty({
+    description: 'Comma separated specialties or JSON string',
+    example: 'Swimming,Endurance Training',
+  })
+  specialties?: string;
+
+  @IsOptional()
+  @ApiProperty({
+    description: 'Primary specialty',
+    example: 'Swimming',
+  })
+  primary_specialty?: string;
+
+  // coach-specific updatable fields
+  @IsOptional()
+  @ApiProperty({ required: false })
+  specialty?: string;
+
+  @IsOptional()
+  @ApiProperty({ required: false })
+  experience_level?: string;
+
+  @IsOptional()
+  @ApiProperty({ required: false })
+  certifications?: string;
+
+  @IsOptional()
+  @ApiProperty({ required: false })
+  hourly_rate?: number;
+
+  @IsOptional()
+  @ApiProperty({ required: false })
+  hourly_currency?: string;
+
   
 }

@@ -97,6 +97,7 @@ model User {
   payment_transactions PaymentTransaction[]
   coach_profile        CoachProfile?
   bookings             Booking[]
+  CoachReview          CoachReview[]
 
   @@map("users")
 }
@@ -113,6 +114,10 @@ model CoachProfile {
   primary_specialty        String?
   specialties              String[]
   experience_level         String?
+  available_days           String[]
+  weekend_days             String[]
+  blocked_days             String[]
+  blocked_time_slots       String[]
   certifications           String[]
   hourly_rate              Decimal?
   hourly_currency          String?
@@ -130,12 +135,27 @@ model CoachProfile {
   subscription_provider   String?
   subscription_reference  String?
 
+  // aggregated rating fields (avg + count) for fast public display
+  avg_rating Decimal?
+  rating_count Int? @default(0)
   rgpd_laws_agreement Boolean @default(false)
 
   bookings        Booking[]
   sessionsPackage SessionsPackage[]
+  coach_reviews   CoachReview[]
+
 
   @@map("coach_profiles")
+}
+
+enum AvailableDays {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
 }
 
 model SessionsPackage {
@@ -158,6 +178,25 @@ model SessionsPackage {
   bookings Booking[]
 
   @@map("sessions_packages")
+}
+
+model CoachReview {
+  id         String    @id @default(cuid())
+  created_at DateTime  @default(now())
+  updated_at DateTime  @default(now())
+  deleted_at DateTime?
+
+  coach_id      String
+  coach_profile CoachProfile @relation(fields: [coach_id], references: [id], onDelete: Cascade)
+
+  athlete_id String
+  athlete    User   @relation(fields: [athlete_id], references: [id], onDelete: Cascade)
+
+  review_text String?
+  booking_id String?
+  rating     Int?
+
+  @@map("coach_reviews")
 }
 
 model Ucode {
@@ -350,22 +389,22 @@ model Booking {
 
   appointment_date DateTime
   session_time     DateTime?
-  duration_minutes Int?     @default(60)
-  session_price    Decimal? @default(55)
-  location         String?  @default("offline")
+  duration_minutes Int?      @default(60)
+  session_price    Decimal?  @default(55)
+  location         String?   @default("offline")
 
   // optional session-package relation when a booking is created from a package
   session_package_id String?
-  sessionPackage      SessionsPackage? @relation(fields: [session_package_id], references: [id], onDelete: Cascade)
+  sessionPackage     SessionsPackage? @relation(fields: [session_package_id], references: [id], onDelete: Cascade)
 
-  description           String?
-  number_of_sessions    Int?
-  days_validity         Int?
-  total_completed_session Int? @default(0)
+  description             String?
+  number_of_sessions      Int?
+  days_validity           Int?
+  total_completed_session Int?    @default(0)
 
   // validation token given to the user after successful payment to validate completion
-  validation_token     String?
-  token_expires_at     DateTime?
+  validation_token String?
+  token_expires_at DateTime?
 
   total_amount Decimal?
   currency     String?

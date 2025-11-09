@@ -27,21 +27,55 @@ export class AuthService {
 
   async me(userId: string) {
     try {
-      const user = await this.prisma.user.findFirst({
+      const user = await (this.prisma as any).user.findFirst({
         where: {
           id: userId,
         },
         select: {
           id: true,
           name: true,
-          email: true,
           avatar: true,
-          address: true,
+          email: true,
           phone_number: true,
           type: true,
           gender: true,
           date_of_birth: true,
+          age: true,
           created_at: true,
+          updated_at: true,
+          email_verified_at: true,
+          location: true,
+          bio: true,
+          objectives: true,
+          goals: true,
+          sports: true,
+          role_users: { select: { role: true } },
+          coach_profile: {
+            select: {
+              id: true,
+              created_at: true,
+              updated_at: true,
+              status: true,
+              user_id: true,
+              primary_specialty: true,
+              specialties: true,
+              experience_level: true,
+              certifications: true,
+              session_price: true,
+              session_duration_minutes: true,
+              hourly_rate: true,
+              hourly_currency: true,
+              is_verified: true,
+              registration_fee_paid: true,
+              registration_fee_paid_at: true,
+              subscription_active: true,
+              subscription_started_at: true,
+              subscription_expires_at: true,
+              subscription_provider: true,
+              subscription_reference: true,
+              rgpd_laws_agreement: true,
+            },
+          },
         },
       });
 
@@ -87,46 +121,40 @@ export class AuthService {
       if (updateUserDto.name) {
         data.name = updateUserDto.name;
       }
-      if (updateUserDto.first_name) {
-        data.first_name = updateUserDto.first_name;
-      }
-      if (updateUserDto.last_name) {
-        data.last_name = updateUserDto.last_name;
-      }
       if (updateUserDto.phone_number) {
         data.phone_number = updateUserDto.phone_number;
       }
-      if (updateUserDto.country) {
-        data.country = updateUserDto.country;
-      }
-      if (updateUserDto.state) {
-        data.state = updateUserDto.state;
-      }
-      if (updateUserDto.local_government) {
-        data.local_government = updateUserDto.local_government;
-      }
-      if (updateUserDto.city) {
-        data.city = updateUserDto.city;
-      }
-      if (updateUserDto.zip_code) {
-        data.zip_code = updateUserDto.zip_code;
-      }
-      if (updateUserDto.address) {
-        data.address = updateUserDto.address;
-      }
-      if (updateUserDto.gender) {
-        data.gender = updateUserDto.gender;
+      if (updateUserDto.location) {
+        data.location = updateUserDto.location;
       }
       if (updateUserDto.date_of_birth) {
         data.date_of_birth = DateHelper.format(updateUserDto.date_of_birth);
       }
+      if (updateUserDto.gender) {
+        data.gender = updateUserDto.gender;
+      }
+      if (updateUserDto.bio) {
+        data.bio = updateUserDto.bio;
+      }
+      if (updateUserDto.objectives) {
+        data.objectives = updateUserDto.objectives;
+      }
+
+      // athlete profile fields
+      if (updateUserDto.primary_specialty) {
+        data.primary_specialty = updateUserDto.primary_specialty;
+      }
+      if (updateUserDto.specialties) {
+        data.specialties = updateUserDto.specialties;
+      }
+
       if (image) {
         // delete old image from storage
-        const oldImage = await this.prisma.user.findFirst({
+        const oldImage = await (this.prisma as any).user.findFirst({
           where: { id: userId },
           select: { avatar: true },
         });
-        if (oldImage.avatar) {
+        if (oldImage && oldImage.avatar) {
           await SazedStorage.delete(
             appConfig().storageUrl.avatar + oldImage.avatar,
           );
@@ -141,25 +169,38 @@ export class AuthService {
 
         data.avatar = fileName;
       }
+
       const user = await UserRepository.getUserDetails(userId);
-      if (user) {
-        await this.prisma.user.update({
-          where: { id: userId },
-          data: {
-            ...data,
+      if (!user) {
+        return { success: false, message: 'User not found' };
+      }
+
+      // If user is a coach, update coach profile fields via upsert
+      if (user.type === 'coach') {
+        await this.prisma.coachProfile.upsert({
+          where: { user_id: userId },
+          update: {
+            primary_specialty: data.primary_specialty,
+            specialties: data.specialties,
+          },
+          create: {
+            user_id: userId,
+            primary_specialty: data.primary_specialty,
+            specialties: data.specialties,
           },
         });
-
-        return {
-          success: true,
-          message: 'User updated successfully',
-        };
-      } else {
-        return {
-          success: false,
-          message: 'User not found',
-        };
       }
+
+      // non-coach (athlete) update path
+      await (this.prisma as any).user.update({
+        where: { id: userId },
+        data: { ...data },
+      });
+
+      return {
+        success: true,
+        message: 'Profile updated successfully',
+      };
     } catch (error) {
       return {
         success: false,
@@ -257,8 +298,238 @@ export class AuthService {
     }
   }
 
+  async setupProfile(userId: string, data: any) {
+    try {
+      if (userId == null || userId == undefined) {
+        throw new Error('User not found');
+      }
 
-    // google log in using passport.js
+      const response = await this.prisma.user.update({
+        where: { id: userId },
+        data: {
+          date_of_birth: data.date_of_birth,
+          age: DateHelper.calculateAge(data.date_of_birth),
+          bio: data.bio,
+          objectives: data.objectives,
+          goals: data.goals,
+          sports: data.sports,
+        },
+      });
+
+      console.log('res.typ', response.type);
+
+      // if user === coach, then setup coach profile as well
+      if (response.type === 'coach') {
+        console.log("hit")
+        const checkPaymentStatus = await this.prisma.coachProfile.findFirst({
+          where: { user_id: userId },
+          select: { registration_fee_paid: true },
+        });
+
+        console.log(
+          'checkPaymentStatus',
+          checkPaymentStatus?.registration_fee_paid,
+        );
+
+        // get the coach profile id
+        console.log('res.coachProfileId', checkPaymentStatus);
+
+        // if (checkPaymentStatus?.registration_fee_paid === 1) {
+        //   console.log('Payment status is valid');
+
+        //   // console.log('type checking', response.type);
+        //   await this.prisma.coachProfile.upsert({
+        //     where: { user_id: userId },
+        //     update: {
+        //       bio: data.bio,
+        //       specialty: data.specialty,
+        //       experience_level: data.experience_level,
+        //       certifications: data.certifications,
+        //       rgpd_laws_agreement: data.rgpd_laws_agreement ?? false,
+        //     },
+        //     create: {
+        //       user_id: userId,
+        //       bio: data.bio,
+        //       specialty: data.specialty,
+        //       experience_level: data.experience_level,
+        //       certifications: data.certifications,
+        //       rgpd_laws_agreement: data.rgpd_laws_agreement ?? false,
+        //     },
+        //   });
+
+        //   return {
+        //     success: true,
+        //     message: 'Profile updated successfully',
+        //   };
+        // } else {
+        //   return {
+        //     success: false,
+        //     message:
+        //       'Coach registration fee not paid. Please complete the payment to set up your profile.',
+        //   };
+        // }
+
+        await this.prisma.coachProfile.upsert({
+          where: { user_id: userId },
+          update: {
+            primary_specialty: data.primary_specialty,
+            specialties: data.specialties,
+            experience_level: data.experience_level,
+            session_price: data.session_price,
+            hourly_currency: 'USD',
+            session_duration_minutes: data.session_duration_minutes,
+            certifications: data.certifications,
+            rgpd_laws_agreement: data.rgpd_laws_agreement ?? false,
+          },
+          create: {
+            user_id: userId,
+            primary_specialty: data.primary_specialty,
+            specialties: data.specialties,
+            experience_level: data.experience_level,
+            session_price: data.session_price,
+            hourly_currency: 'USD',
+            session_duration_minutes: data.session_duration_minutes,
+            certifications: data.certifications,
+            rgpd_laws_agreement: data.rgpd_laws_agreement ?? false,
+          },
+        });
+      }
+
+      return {
+        success: true,
+        message: 'Profile updated successfully',
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message,
+      };
+    }
+  }
+
+  async register({
+    name,
+    email,
+    phone_number,
+    location,
+    date_of_birth,
+    password,
+    bio,
+    type,
+  }: {
+    name: string;
+    email: string;
+    password: string;
+    location: string;
+    phone_number: string;
+    type?: string;
+    bio?: string;
+    date_of_birth?: string;
+    coach_profile?: any;
+  }) {
+    try {
+      // Check if email already exist
+      const userEmailExist = await UserRepository.exist({
+        field: 'email',
+        value: String(email),
+      });
+
+      if (userEmailExist) {
+        return {
+          statusCode: 401,
+          message: 'Email already exist',
+        };
+      }
+
+      const user = await UserRepository.createUser({
+        name: name,
+        email: email,
+        phone_number: phone_number,
+        location: location,
+        bio: bio,
+        date_of_birth: date_of_birth,
+        age: DateHelper.calculateAge(date_of_birth),
+        password: password,
+        type: type,
+      });
+
+      if (user == null && user.success == false) {
+        return {
+          success: false,
+          message: 'Failed to create account',
+        };
+      }
+
+      // create stripe customer account
+      const stripeCustomer = await StripePayment.createCustomer({
+        user_id: user.data.id,
+        email: email,
+        name: name,
+      });
+
+      if (stripeCustomer) {
+        await this.prisma.user.update({
+          where: {
+            id: user.data.id,
+          },
+          data: {
+            billing_id: stripeCustomer.id,
+          },
+        });
+      }
+
+      // // If registering as a coach, create the coach profile record
+      // if (type === 'coach' && coach_profile) {
+      //   console.log('type is coach or not', type);
+
+      //   try {
+      //     await this.prisma.coachProfile.create({
+      //       data: {
+      //         user_id: user.data.id,
+      //         hourly_rate: coach_profile.hourly_rate ?? undefined,
+      //         hourly_currency: coach_profile.hourly_currency ?? null,
+      //       },
+      //     });
+      //   } catch (err) {
+      //     return {
+      //       success: false,
+      //       message:
+      //         'User created but failed to create coach profile: ' + err.message,
+      //     };
+      //   }
+      //   return {
+      //     success: true,
+      //     message: 'We have sent a verification link to your email',
+      //   };
+      // }
+
+      // Generate verification token
+      const token = await UcodeRepository.createVerificationToken({
+        userId: user.data.id,
+        email: email,
+      });
+
+      // Send verification email with token
+      await this.mailService.sendVerificationLink({
+        email,
+        name: email,
+        token: token.token,
+        type: type,
+      });
+
+      return {
+        success: true,
+        message: 'We have sent a verification link to your email',
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message,
+      };
+    }
+  }
+
+  // google log in using passport.js
   async googleLogin({ email, userId }: { email: string; userId: string }) {
     try {
       const payload = { email: email, sub: userId };
@@ -373,8 +644,6 @@ export class AuthService {
     }
   }
 
-
-
   async refreshToken(user_id: string, refreshToken: string) {
     try {
       const storedToken = await this.redis.get(`refresh_token:${user_id}`);
@@ -434,116 +703,6 @@ export class AuthService {
       return {
         success: true,
         message: 'Refresh token revoked successfully',
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
-    }
-  }
-
-  async register({
-    name,
-    first_name,
-    last_name,
-    email,
-    password,
-    type,
-  }: {
-    name: string;
-    first_name: string;
-    last_name: string;
-    email: string;
-    password: string;
-    type?: string;
-  }) {
-    try {
-      // Check if email already exist
-      const userEmailExist = await UserRepository.exist({
-        field: 'email',
-        value: String(email),
-      });
-
-      if (userEmailExist) {
-        return {
-          statusCode: 401,
-          message: 'Email already exist',
-        };
-      }
-
-      const user = await UserRepository.createUser({
-        name: name,
-        first_name: first_name,
-        last_name: last_name,
-        email: email,
-        password: password,
-        type: type,
-      });
-
-      if (user == null && user.success == false) {
-        return {
-          success: false,
-          message: 'Failed to create account',
-        };
-      }
-
-      // create stripe customer account
-      const stripeCustomer = await StripePayment.createCustomer({
-        user_id: user.data.id,
-        email: email,
-        name: name,
-      });
-
-      if (stripeCustomer) {
-        await this.prisma.user.update({
-          where: {
-            id: user.data.id,
-          },
-          data: {
-            billing_id: stripeCustomer.id,
-          },
-        });
-      }
-
-      // ----------------------------------------------------
-      // // create otp code
-      // const token = await UcodeRepository.createToken({
-      //   userId: user.data.id,
-      //   isOtp: true,
-      // });
-
-      // // send otp code to email
-      // await this.mailService.sendOtpCodeToEmail({
-      //   email: email,
-      //   name: name,
-      //   otp: token,
-      // });
-
-      // return {
-      //   success: true,
-      //   message: 'We have sent an OTP code to your email',
-      // };
-
-      // ----------------------------------------------------
-
-      // Generate verification token
-      const token = await UcodeRepository.createVerificationToken({
-        userId: user.data.id,
-        email: email,
-      });
-
-      // Send verification email with token
-      await this.mailService.sendVerificationLink({
-        email,
-        name: email,
-        token: token.token,
-        type: type,
-      });
-
-      return {
-        success: true,
-        message: 'We have sent a verification link to your email',
       };
     } catch (error) {
       return {
@@ -904,6 +1063,95 @@ export class AuthService {
         success: false,
         message: error.message,
       };
+    }
+  }
+
+  async createCoachRegistrationPayment(
+    user_id: string,
+    amount = 49,
+    currency = 'usd',
+  ) {
+    try {
+      const user = await UserRepository.getUserDetails(user_id);
+      if (!user) return { success: false, message: 'User not found' };
+      // Determine whether the registration fee has already been paid
+      const coachProfile = await (this.prisma as any).coachProfile.findFirst({
+        where: { user_id: user.id },
+      });
+
+      const registrationFee =
+        appConfig().payment.registration.coach_registration_fee ?? 10;
+      const subscriptionFee =
+        appConfig().payment.registration.coach_subscription_fee ?? 49;
+
+      let totalAmount = amount; // default if caller overrides
+      let txType = 'subscription';
+      let metadataType = 'coach_subscription';
+
+      const bodyAmountOrDefault = (bodyAmt: any, fallback: number) => {
+        if (typeof bodyAmt === 'number' && bodyAmt > 0) return bodyAmt;
+        return fallback;
+      };
+
+      if (!coachProfile || !coachProfile.registration_fee_paid) {
+        // first-time payment: registration + first-month subscription
+        totalAmount = bodyAmountOrDefault(
+          amount,
+          registrationFee + subscriptionFee,
+        );
+        txType = 'registration_and_subscription';
+        metadataType = 'coach_registration_and_subscription';
+      } else {
+        // subsequent payments: subscription only
+        totalAmount = bodyAmountOrDefault(amount, subscriptionFee);
+        txType = 'subscription';
+        metadataType = 'coach_subscription';
+      }
+
+      // ensure stripe customer exists
+      if (!user.billing_id) {
+        const stripeCustomer = await StripePayment.createCustomer({
+          user_id: user.id,
+          email: user.email,
+          name: user.name || `${user.first_name || ''} ${user.last_name || ''}`,
+        });
+        if (stripeCustomer) {
+          await (this.prisma as any).user.update({
+            where: { id: user.id },
+            data: { billing_id: stripeCustomer.id },
+          });
+          user.billing_id = stripeCustomer.id;
+        }
+      }
+
+      // create payment intent for calculated amount
+      const paymentIntent = await StripePayment.createPaymentIntent({
+        amount: totalAmount,
+        currency: currency,
+        customer_id: user.billing_id,
+        metadata: { user_id: user.id, type: metadataType },
+      });
+
+      // store single transaction representing this checkout
+      await (this.prisma as any).paymentTransaction.create({
+        data: {
+          user_id: user.id,
+          amount: totalAmount,
+          currency: currency,
+          provider: 'stripe',
+          reference_number: paymentIntent.id,
+          status: 'pending',
+          type: txType,
+        },
+      });
+
+      return {
+        success: true,
+        client_secret: paymentIntent.client_secret,
+        payment_intent_id: paymentIntent.id,
+      };
+    } catch (error) {
+      return { success: false, message: error.message };
     }
   }
 
