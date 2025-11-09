@@ -20,6 +20,57 @@ import { GetUser } from '../auth/decorators/get-user.decorator';
 export class BookingsController {
   constructor(private readonly bookingsService: BookingsService) {}
 
+  @ApiOperation({ summary: 'blocked days for a coach' })
+  @Post('coach/:coachId/blocked-days')
+  async setBlockedDays(
+    @GetUser('userId') coachId: string,
+    @Body('blockedDays') blockedDays: string[],
+  ) {
+    return this.bookingsService.setBlockedDays(coachId, blockedDays);
+  }
+
+  @ApiOperation({ summary: 'get blocked days for a coach' })
+  @Get('coach/:coachId/blocked-days')
+  async getBlockedDays(@Param('coachId') coachId: string) {
+    return this.bookingsService.blockedDays(coachId);
+  }
+
+  @ApiOperation({ summary: 'get blocked time slots for a coach' })
+  @Get('coach/:coachId/blocked-time-slots')
+  async getBlockedTimeSlots(@Param('coachId') coachId: string) {
+    return this.bookingsService.blockedTimeSlots(coachId);
+  }
+
+  @ApiOperation({ summary: 'set blocked time slots for a coach' })
+  @Post('coach/:coachId/blocked-time-slots')
+  async setBlockedTimeSlots(
+    @GetUser('userId') coachId: string,
+    @Body('blockedTimeSlots') blockedTimeSlots: string[],
+  ) {
+    return this.bookingsService.setBlockedTimeSlots(coachId, blockedTimeSlots);
+  }
+
+  @ApiOperation({ summary: 'set weekend days for a coach' })
+  @Post('coach/:coachId/weekend-days')
+  async setWeekendDays(
+    @GetUser('userId') coachId: string,
+    @Body('weekendDays') weekendDays: string[],
+  ) {
+    return this.bookingsService.setWeekendDays(coachId, weekendDays);
+  }
+
+  @ApiOperation({ summary: 'get weekend days for a coach' })
+  @Get('coach/:coachId/weekend-days')
+  async getWeekendDays(@Param('coachId') coachId: string) {
+    return this.bookingsService.weekendDays(coachId);
+  }
+
+  @ApiOperation({ summary: 'get available days for a coach' })
+  @Get('coach/:coachId/available-days')
+  async getAvailableDays(@Param('coachId') coachId: string) {
+    return this.bookingsService.getAvailableDays(coachId);
+  }
+
   @ApiOperation({ summary: 'booked a new appointment by athlete' })
   @Post('coach/:coachId')
   async bookAppointment(
@@ -52,24 +103,34 @@ export class BookingsController {
     return this.bookingsService.getAthleteBookingsByDate(athleteId, date);
   }
 
-  @ApiOperation({ summary: 'get a booking by id from athlete' })
-  @Get(':bookingId')
-  async getBookingById(
-    @GetUser('userId') athleteId: string,
-    @Param('bookingId') bookingId: string,
-  ) {
-    return this.bookingsService.getBookingById(athleteId, bookingId);
+  // (booking-by-id and token endpoints are defined later to avoid route-order collisions)
+
+  @ApiOperation({ summary: 'get upcoming bookings for logged-in user' })
+  @Get('upcoming')
+  async getUpcomingBookings(@GetUser('userId') userId: string) {
+    console.log('hit test');
+    return this.bookingsService.getUpcomingBookings(userId);
   }
 
-  @ApiOperation({
-    summary: "athlete fetches the booking's validation token (if available)",
-  })
-  @Get(':bookingId/token')
-  async getBookingToken(
+  @ApiOperation({ summary: 'get completed bookings for logged-in user' })
+  @Get('completed')
+  async getCompletedBookings(@GetUser('userId') userId: string) {
+    return this.bookingsService.getCompletedBookings(userId);
+  }
+
+  @ApiOperation({ summary: 'send review to coach' })
+  @Post(':bookingId/review')
+  async sendReviewToCoach(
     @GetUser('userId') athleteId: string,
     @Param('bookingId') bookingId: string,
+    @Body() reviewDto: any,
   ) {
-    return this.bookingsService.getBookingToken(athleteId, bookingId);
+    console.log("hit")
+    return this.bookingsService.sendReviewToCoach(
+      athleteId,
+      bookingId,
+      reviewDto,
+    );
   }
 
   @ApiOperation({ summary: 'get all bookings for especific coach' })
@@ -96,6 +157,12 @@ export class BookingsController {
     return this.bookingsService.getBookingByIdForCoach(coachId, bookingId);
   }
 
+  @ApiOperation({ summary: 'get test' })
+  @Get('coach/test/test')
+  async test(@GetUser('userId') coachId: string) {
+    console.log('CoachId', coachId);
+  }
+
   @ApiOperation({ summary: 'coach validates a completed session using token' })
   @Post(':bookingId/validate')
   async validateBookingToken(
@@ -104,6 +171,27 @@ export class BookingsController {
     @Body('token') token: string,
   ) {
     return this.bookingsService.validateBookingToken(coachId, bookingId, token);
+  }
+
+  // Reinsert athlete booking-by-id and token endpoints here (after literal routes)
+  @ApiOperation({ summary: 'get a booking by id from athlete' })
+  @Get(':bookingId')
+  async getBookingById(
+    @GetUser('userId') athleteId: string,
+    @Param('bookingId') bookingId: string,
+  ) {
+    return this.bookingsService.getBookingById(athleteId, bookingId);
+  }
+
+  @ApiOperation({
+    summary: "athlete fetches the booking's validation token (if available)",
+  })
+  @Get(':bookingId/token')
+  async getBookingToken(
+    @GetUser('userId') athleteId: string,
+    @Param('bookingId') bookingId: string,
+  ) {
+    return this.bookingsService.getBookingToken(athleteId, bookingId);
   }
 
   @ApiOperation({ summary: 'update a booking by coach only' })

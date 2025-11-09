@@ -48,6 +48,7 @@ import { BookingsModule } from './modules/bookings/bookings.module';
         port: +appConfig().redis.port,
       },
     }),
+
     // disabling throttling for dev
     // ThrottlerModule.forRoot([
     //   {
