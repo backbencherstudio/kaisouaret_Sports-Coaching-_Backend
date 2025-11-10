@@ -98,6 +98,7 @@ model User {
   coach_profile        CoachProfile?
   bookings             Booking[]
   CoachReview          CoachReview[]
+  user_badges          UserBadge[]
 
   @@map("users")
 }
@@ -590,6 +591,41 @@ model UserSetting {
   value String?
 
   @@map("user_settings")
+}
+
+// Badges system
+model Badge {
+  id         String   @id @default(cuid())
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  key         String  @unique
+  title       String
+  description String?
+  points      Int?    @default(0)
+  icon        String?
+  criteria    Json?
+
+  user_badges UserBadge[]
+
+  @@map("badges")
+}
+
+model UserBadge {
+  id         String   @id @default(cuid())
+  created_at DateTime @default(now())
+
+  user_id String
+  user    User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  badge_id String
+  badge    Badge  @relation(fields: [badge_id], references: [id], onDelete: Cascade)
+
+  earned_at DateTime @default(now())
+  progress  Int?
+  meta      Json?
+
+  @@map("user_badges")
 }
 
 // this table stores example

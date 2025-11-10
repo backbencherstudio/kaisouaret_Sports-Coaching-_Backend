@@ -119,19 +119,7 @@ export class BookingsController {
   }
 
   @ApiOperation({ summary: 'send review to coach' })
-  @Post(':bookingId/review')
-  async sendReviewToCoach(
-    @GetUser('userId') athleteId: string,
-    @Param('bookingId') bookingId: string,
-    @Body() reviewDto: any,
-  ) {
-    console.log("hit")
-    return this.bookingsService.sendReviewToCoach(
-      athleteId,
-      bookingId,
-      reviewDto,
-    );
-  }
+  // Review endpoints were moved to the separate `reviews` module.
 
   @ApiOperation({ summary: 'get all bookings for especific coach' })
   @Get('coach/:coachId')

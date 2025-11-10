@@ -1779,73 +1779,10 @@ export class BookingsService {
     bookingId: string,
     reviewDto: any,
   ) {
-    try {
-      if (!athleteId) return { error: 'Athlete ID is required' };
-      if (!bookingId) return { error: 'Booking ID is required' };
-      // Accept either a body object { review, rating } or a raw string body
-      if (typeof reviewDto === 'string') {
-        reviewDto = { review: reviewDto };
-      }
-      if (!reviewDto || !reviewDto.review)
-        return { error: 'Review content is required' };
-
-      const booking = await this.prisma.booking.findFirst({
-        where: { id: bookingId, user_id: athleteId },
-      });
-      if (!booking) return { error: 'Booking not found' };
-
-      // Only allow reviews for completed bookings
-      if (booking.status !== 'COMPLETED') {
-        return { error: 'You can only review a completed booking' };
-      }
-
-      // Prevent duplicate review for the same booking by same athlete
-      const existing = await this.prisma.coachReview.findFirst({
-        where: { booking_id: bookingId, athlete_id: athleteId },
-      });
-      if (existing) return { error: 'Review already submitted for this booking' };
-
-      // Create coach-level review (coach_id references coach_profile.id in schema)
-      const coachReview = await this.prisma.coachReview.create({
-        data: {
-          coach_id: booking.coach_profile_id,
-          athlete_id: athleteId,
-          booking_id: bookingId,
-          review_text: reviewDto.review,
-          rating: reviewDto.rating || null,
-        },
-      });
-
-      // Recompute aggregated rating for coach profile (avg + count)
-      try {
-        const agg = await this.prisma.coachReview.aggregate({
-          where: {
-            coach_id: booking.coach_profile_id,
-            rating: { not: null },
-          },
-          _avg: { rating: true },
-          _count: { rating: true },
-        });
-
-        const avg = agg._avg?.rating ? Number(agg._avg.rating) : null;
-        const count = agg._count?.rating ?? 0;
-
-        await this.prisma.coachProfile.update({
-          where: { id: booking.coach_profile_id },
-          data: {
-            avg_rating: avg,
-            rating_count: count,
-          },
-        });
-      } catch (aggErr) {
-        // Non-fatal: log and continue
-        console.error('Failed to update coach profile aggregates', aggErr);
-      }
-
-      return coachReview;
-    } catch (err) {
-      console.error('sendReviewToCoach error', err);
-      return { error: 'Failed to send review to coach' };
-    }
+    // Review handling moved to ReviewsService in the `reviews` module.
+    // This method intentionally removed to keep booking logic separated.
+    throw new Error(
+      'sendReviewToCoach was moved to the reviews module; call ReviewsService.createReview instead',
+    );
   }
 }

@@ -21,6 +21,8 @@ import { AdminModule } from './modules/admin/admin.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { PaymentModule } from './modules/payment/payment.module';
 import { BookingsModule } from './modules/bookings/bookings.module';
+import { BadgesModule } from './modules/badges/badges.module';
+import { ReviewsModule } from './modules/reviews/reviews.module';
 
 @Module({
   imports: [
@@ -77,6 +79,8 @@ import { BookingsModule } from './modules/bookings/bookings.module';
     ChatModule,
     PaymentModule,
     BookingsModule,
+    ReviewsModule,
+    BadgesModule,
   ],
   controllers: [AppController],
   providers: [

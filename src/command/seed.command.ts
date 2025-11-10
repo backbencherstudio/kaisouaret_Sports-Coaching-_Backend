@@ -25,12 +25,32 @@ export class SeedCommand extends CommandRunner {
         await this.roleSeed();
         await this.permissionSeed();
         await this.userSeed();
+          await this.badgeSeed();
         await this.permissionRoleSeed();
       });
 
       console.log('Seeding done.');
     } catch (error) {
       throw error;
+    }
+  }
+
+  async badgeSeed() {
+    const badges = [
+      { key: 'first_session', title: 'First Session', description: 'Completed your first training session', points: 10 },
+      { key: 'goal_setter', title: 'Goal Setter', description: 'Set your first fitness goal', points: 5 },
+      { key: 'consistency_master', title: 'Consistency Master', description: 'Trained for 7 days straight', points: 50 },
+      { key: 'marathon_trainer', title: 'Marathon Trainer', description: 'Complete 50 training sessions', points: 100 },
+      { key: 'perfect_week', title: 'Perfect Week', description: 'Complete all scheduled sessions in a week', points: 30 },
+      { key: 'legendary_athlete', title: 'Legendary Athlete', description: 'Reach 1000 total points', points: 200 },
+    ];
+
+    for (const b of badges) {
+      await this.prisma.badge.upsert({
+        where: { key: b.key },
+        update: { title: b.title, description: b.description, points: b.points },
+        create: { key: b.key, title: b.title, description: b.description, points: b.points },
+      });
     }
   }
 
