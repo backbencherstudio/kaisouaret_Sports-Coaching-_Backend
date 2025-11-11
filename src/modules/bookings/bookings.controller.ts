@@ -112,6 +112,12 @@ export class BookingsController {
     return this.bookingsService.getUpcomingBookings(userId);
   }
 
+  @ApiOperation({ summary: 'get next upcoming session for logged-in user' })
+  @Get('next')
+  async getNextUpcomingSession(@GetUser('userId') userId: string) {
+    return this.bookingsService.getNextUpcomingSession(userId);
+  }
+
   @ApiOperation({ summary: 'get completed bookings for logged-in user' })
   @Get('completed')
   async getCompletedBookings(@GetUser('userId') userId: string) {
@@ -120,7 +126,6 @@ export class BookingsController {
 
   @ApiOperation({ summary: 'send review to coach' })
   // Review endpoints were moved to the separate `reviews` module.
-
   @ApiOperation({ summary: 'get all bookings for especific coach' })
   @Get('coach/:coachId')
   async getCoachBookings(@Param('coachId') coachId: string) {
@@ -256,5 +261,11 @@ export class BookingsController {
     @Body('searchText') searchText: string,
   ) {
     return this.bookingsService.getSearchCoaches(athleteId, searchText);
+  }
+
+  @ApiOperation({ summary: 'get selected coach details' })
+  @Get('coach/:coachId/details')
+  async getCoachDetails(@Param('coachId') coachId: string) {
+    return this.bookingsService.getCoachDetails(coachId);
   }
 }

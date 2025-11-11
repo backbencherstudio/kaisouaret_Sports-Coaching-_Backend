@@ -9,7 +9,10 @@ import { GetUser } from '../auth/decorators/get-user.decorator';
 export class BadgesController {
   constructor(private readonly badgesService: BadgesService) {}
 
-  @ApiOperation({ summary: 'Get all badges (public). If authenticated the response includes earned flags.' })
+  @ApiOperation({
+    summary:
+      'Get all badges (public). If authenticated the response includes earned flags.',
+  })
   @Get()
   async getAll(@GetUser('userId') userId?: string) {
     return this.badgesService.getAllBadges(userId);
@@ -22,7 +25,16 @@ export class BadgesController {
     return this.badgesService.getMyBadges(userId);
   }
 
-  @ApiOperation({ summary: 'Attempt to claim a badge for the authenticated user by badge key' })
+  @ApiOperation({ summary: "Get the next badge progress for the authenticated user" })
+  @UseGuards(JwtAuthGuard)
+  @Get('next')
+  async getNext(@GetUser('userId') userId: string) {
+    return this.badgesService.getNextBadge(userId);
+  }
+
+  @ApiOperation({
+    summary: 'Attempt to claim a badge for the authenticated user by badge key',
+  })
   @UseGuards(JwtAuthGuard)
   @Post(':key/claim')
   async claim(@GetUser('userId') userId: string, @Param('key') key: string) {

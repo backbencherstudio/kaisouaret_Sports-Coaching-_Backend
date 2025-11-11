@@ -1031,10 +1031,6 @@ export class BookingsService {
     }
   }
 
-  /**
-   * Get upcoming bookings for the logged-in user. If user is a coach, return upcoming bookings where they are the coach.
-   * If user is an athlete, return upcoming bookings where they are the athlete (and include coach details).
-   */
   async getUpcomingBookings(userId: string) {
     try {
       if (!userId) return { error: 'User ID is required' };
@@ -1156,6 +1152,92 @@ export class BookingsService {
     } catch (error) {
       console.error('getUpcomingBookings error', error);
       return { error: 'Failed to get upcoming bookings' };
+    }
+  }
+
+  async getNextUpcomingSession(userId: string) {
+    try {
+      if (!userId) return { error: 'User ID is required' };
+      const user = await this.prisma.user.findUnique({ where: { id: userId } });
+      if (!user) return { error: 'User not found' };
+
+      const now = new Date();
+
+      if (user.type === 'coach') {
+        // For coach return next session where they are the coach
+        const coachProfile = await this.prisma.coachProfile.findUnique({
+          where: { user_id: userId },
+        });
+        if (!coachProfile) return { error: 'Coach profile not found' };
+
+        const next = await this.prisma.booking.findFirst({
+          where: {
+            coach_id: userId,
+            coach_profile_id: coachProfile.id,
+            appointment_date: { gte: now },
+          },
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                avatar: true,
+                phone_number: true,
+                goals: true,
+                sports: true,
+              },
+            },
+            sessionPackage: {
+              select: {
+                id: true,
+                title: true,
+                number_of_sessions: true,
+              },
+            },
+          },
+          orderBy: { appointment_date: 'asc' },
+        });
+
+        if (!next) return { message: 'No upcoming session' };
+        return next;
+      }
+
+      // Athlete view: next session where they are the user
+      const nextBooking = await this.prisma.booking.findFirst({
+        where: { user_id: userId, appointment_date: { gte: now } },
+        include: {
+          coach_profile: {
+            select: {
+              id: true,
+              primary_specialty: true,
+              specialties: true,
+              experience_level: true,
+              hourly_rate: true,
+              session_duration_minutes: true,
+              session_price: true,
+            },
+          },
+          sessionPackage: {
+            select: { id: true, title: true, number_of_sessions: true },
+          },
+        },
+        orderBy: { appointment_date: 'asc' },
+      });
+
+      if (!nextBooking) return { message: 'No upcoming session' };
+
+      // attach coach user info
+      const coachUser = await this.prisma.user.findUnique({
+        where: { id: nextBooking.coach_id },
+        select: { id: true, name: true, avatar: true, phone_number: true },
+      });
+
+      return {
+        ...nextBooking,
+        coach: { user: coachUser, profile: nextBooking.coach_profile },
+      };
+    } catch (error) {
+      return { error: 'Failed to retrieve booking' };
     }
   }
 
@@ -1640,6 +1722,73 @@ export class BookingsService {
     }
   }
 
+  async getCoachDetails(coachId: string) {
+    try {
+      if (!coachId) {
+        return { error: 'Coach ID is required' };
+      }
+
+      const coach = await this.prisma.user.findUnique({
+        where: { id: coachId },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          avatar: true,
+          phone_number: true,
+          bio: true,
+          location: true,
+          type: true,
+          coach_profile: {
+            select: {
+              id: true,
+              primary_specialty: true,
+              specialties: true,
+              experience_level: true,
+              certifications: true,
+              hourly_rate: true,
+              hourly_currency: true,
+              session_duration_minutes: true,
+              session_price: true,
+              is_verified: true,
+              coach_reviews: {
+                select: {
+                  id: true,
+                  rating: true,
+                  review_text: true,
+                  created_at: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (!coach) {
+        return { error: 'Coach not found' };
+      }
+
+      // fetch session packages separately because the relation field is not available on UserSelect
+      const packages = await this.prisma.sessionsPackage.findMany({
+        where: { coach_id: coachId },
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          number_of_sessions: true,
+          days_validity: true,
+          total_price: true,
+          currency: true,
+        },
+      });
+
+      return { ...coach, sessionsPackage: packages };
+    } catch (err) {
+      console.error('getCoachDetails error', err);
+      return { error: 'Failed to get coach details' };
+    }
+  }
+
   async getCompletedBookings(userId: string) {
     try {
       if (!userId) {
@@ -1772,17 +1921,5 @@ export class BookingsService {
       console.error('getCompletedBookings error', err);
       return { error: 'Failed to get completed bookings' };
     }
-  }
-
-  async sendReviewToCoach(
-    athleteId: string,
-    bookingId: string,
-    reviewDto: any,
-  ) {
-    // Review handling moved to ReviewsService in the `reviews` module.
-    // This method intentionally removed to keep booking logic separated.
-    throw new Error(
-      'sendReviewToCoach was moved to the reviews module; call ReviewsService.createReview instead',
-    );
   }
 }
