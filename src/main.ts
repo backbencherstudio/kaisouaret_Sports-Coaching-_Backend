@@ -43,6 +43,11 @@ async function bootstrap() {
     index: false,
     prefix: '/storage',
   });
+
+  app.useStaticAssets(join(__dirname, '..', 'public/storage'), {
+    index: false,
+    prefix: '/public/storage',
+  });
   app.useGlobalPipes(
     new ValidationPipe({
       transform: true,
