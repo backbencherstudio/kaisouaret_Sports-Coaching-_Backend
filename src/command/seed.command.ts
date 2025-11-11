@@ -63,12 +63,15 @@ export class SeedCommand extends CommandRunner {
       password: appConfig().defaultUser.system.password,
     });
 
-    await this.prisma.roleUser.create({
-      data: {
-        user_id: systemUser.id,
-        role_id: '1',
-      },
-    });
+    const existingRoleUser = await this.prisma.roleUser.findFirst({ where: { user_id: systemUser.id, role_id: '1' } });
+    if (!existingRoleUser) {
+      await this.prisma.roleUser.create({
+        data: {
+          user_id: systemUser.id,
+          role_id: '1',
+        },
+      });
+    }
   }
 
   async permissionSeed() {
@@ -122,6 +125,7 @@ export class SeedCommand extends CommandRunner {
 
     await this.prisma.permission.createMany({
       data: permissions,
+      skipDuplicates: true,
     });
   }
 
@@ -142,6 +146,7 @@ export class SeedCommand extends CommandRunner {
     }
     await this.prisma.permissionRole.createMany({
       data: adminPermissionRoleArray,
+      skipDuplicates: true,
     });
     // -----------
 
@@ -161,6 +166,7 @@ export class SeedCommand extends CommandRunner {
     }
     await this.prisma.permissionRole.createMany({
       data: projectAdminPermissionRoleArray,
+      skipDuplicates: true,
     });
     // -----------
 
@@ -186,6 +192,7 @@ export class SeedCommand extends CommandRunner {
     }
     await this.prisma.permissionRole.createMany({
       data: projectManagerPermissionRoleArray,
+      skipDuplicates: true,
     });
     // -----------
 
@@ -210,6 +217,7 @@ export class SeedCommand extends CommandRunner {
     }
     await this.prisma.permissionRole.createMany({
       data: memberPermissionRoleArray,
+      skipDuplicates: true,
     });
     // -----------
 
@@ -232,6 +240,7 @@ export class SeedCommand extends CommandRunner {
     }
     await this.prisma.permissionRole.createMany({
       data: viewerPermissionRoleArray,
+      skipDuplicates: true,
     });
     // -----------
   }
@@ -267,6 +276,7 @@ export class SeedCommand extends CommandRunner {
           name: 'viewer',
         },
       ],
+      skipDuplicates: true,
     });
   }
 }

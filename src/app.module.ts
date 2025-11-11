@@ -23,6 +23,7 @@ import { PaymentModule } from './modules/payment/payment.module';
 import { BookingsModule } from './modules/bookings/bookings.module';
 import { BadgesModule } from './modules/badges/badges.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
+import { GoalsModule } from './modules/goals/goals.module';
 
 @Module({
   imports: [
@@ -81,6 +82,7 @@ import { ReviewsModule } from './modules/reviews/reviews.module';
     BookingsModule,
     ReviewsModule,
     BadgesModule,
+    GoalsModule,
   ],
   controllers: [AppController],
   providers: [

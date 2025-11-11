@@ -99,6 +99,9 @@ model User {
   bookings             Booking[]
   CoachReview          CoachReview[]
   user_badges          UserBadge[]
+  user_goals           Goal[]
+  goal_notes           GoalNote[]
+  coach_notes          GoalNote[] @relation("coach_notes")
 
   @@map("users")
 }
@@ -626,6 +629,82 @@ model UserBadge {
   meta      Json?
 
   @@map("user_badges")
+}
+
+// Goals and progress tracking for athletes
+model Goal {
+  id         String   @id @default(cuid())
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  user_id String
+  user    User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  // short label for the goal, e.g. "Weight Loss", "Muscle Gain"
+  title String
+
+  // optionally keep as free-text values (client stores units)
+  current_value String?
+  target_value  String?
+
+  // optional target date
+  target_date DateTime?
+
+  // how frequently the user attends sessions per week
+  frequency_per_week Int?
+
+  // user's motivation/description
+  motivation String?
+
+  // aggregated summary to speed up reads
+  progress_percent Int? @default(0)
+
+  progress GoalProgress[]
+  coach_notes GoalNote[]
+
+  @@map("goals")
+}
+
+// granular progress entries submitted by athlete (or coach)
+model GoalProgress {
+  id         String   @id @default(cuid())
+  created_at DateTime @default(now())
+
+  goal_id String
+  goal    Goal   @relation(fields: [goal_id], references: [id], onDelete: Cascade)
+
+  // date this progress was recorded for (calendar date)
+  recorded_at DateTime @default(now())
+
+  // optional structured fields shown in the UI
+  previous_weight Float?
+  current_weight  Float?
+  training_duration Int?    // minutes
+  calories_burned   Int?
+  sets_per_session  Int?
+
+  notes String?
+
+  @@map("goal_progress")
+}
+
+// coach notes for a user goal
+model GoalNote {
+  id         String   @id @default(cuid())
+  created_at DateTime @default(now())
+
+  user_id String
+  user    User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  coach_id String
+  coach    User   @relation("coach_notes", fields: [coach_id], references: [id], onDelete: Cascade)
+
+  goal_id String
+  goal    Goal   @relation(fields: [goal_id], references: [id], onDelete: Cascade)
+
+  note String?
+
+  @@map("goal_notes")
 }
 
 // this table stores example

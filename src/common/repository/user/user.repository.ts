@@ -83,6 +83,10 @@ export class UserRepository {
     try {
       password = await bcrypt.hash(password, appConfig().security.salt);
 
+      // If a system user with the same email already exists, return it (idempotent)
+      const existing = await prisma.user.findFirst({ where: { OR: [{ email }, { username }] } });
+      if (existing) return existing;
+
       const user = await prisma.user.create({
         data: {
           username: username,
@@ -91,6 +95,7 @@ export class UserRepository {
           type: 'su_admin',
         },
       });
+
       return user;
     } catch (error) {
       throw error;
