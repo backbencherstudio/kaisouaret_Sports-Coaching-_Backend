@@ -7,6 +7,7 @@ import { RolesGuard } from '../../../../common/guard/role/roles.guard';
 import { Roles } from '../../../../common/guard/role/roles.decorator';
 import { Role } from '../../../../common/guard/role/role.enum';
 import { RevenueTrendQueryDto } from './dto/revenue-trend-query.dto';
+import {RecentActivityQueryDto} from './dto/recent-activity-query.dto'
 
 
 @ApiBearerAuth()
@@ -37,8 +38,9 @@ export class UsersController {
   }
 
   @Get('recent-activity')
-  async getRecentActivity(@Query('limit') limit?: string) {
-    const lim = limit ? parseInt(limit, 10) : 10;
-    return this.usersService.getRecentActivity(Number.isFinite(lim) ? lim : 10);
+  async getRecentActivity(
+    @Query() query: RecentActivityQueryDto,
+  ) {
+    return this.usersService.getRecentActivity(query.limit);
   }
 }

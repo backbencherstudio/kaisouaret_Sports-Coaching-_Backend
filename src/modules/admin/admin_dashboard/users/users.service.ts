@@ -1,7 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { CreateUserDto } from './dto/create-user.dto';
-import { UpdateUserDto } from './dto/update-user.dto';
 import dayjs from 'dayjs';
 
 @Injectable()
@@ -58,9 +56,10 @@ export class UsersService {
 
   async getRevenueTrend({ months, year }: { months?: number; year?: number }) {
     const valid = [3, 6, 12];
+
     const range = valid.includes(months ?? 0) ? (months as number) : 6;
   
-    const y = year ?? dayjs().year();              // default: current year
+    const y = year ?? dayjs().year(); 
     const startDate = dayjs().year(y).startOf('year').toDate();
     const endDate =
       range === 12
