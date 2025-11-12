@@ -105,15 +105,6 @@ export class UserListService {
       return {
         success: false,
         message: error.message,
-        data: [],
-        pagination: {
-          page: 1,
-          limit: 10,
-          total: 0,
-          total_pages: 0,
-          has_next_page: false,
-          has_previous_page: false,
-        },
       };
     }
   }
