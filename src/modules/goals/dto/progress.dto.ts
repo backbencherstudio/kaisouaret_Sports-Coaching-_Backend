@@ -1,4 +1,10 @@
-import { IsOptional, IsNumber, IsString, IsInt, IsDateString } from 'class-validator';
+import {
+  IsOptional,
+  IsNumber,
+  IsString,
+  IsInt,
+  IsDateString,
+} from 'class-validator';
 
 export class ProgressDto {
   @IsOptional()
@@ -16,6 +22,10 @@ export class ProgressDto {
   @IsOptional()
   @IsInt()
   calories_burned?: number;
+
+  @IsOptional()
+  @IsInt()
+  calories_gained?: number;
 
   @IsOptional()
   @IsInt()

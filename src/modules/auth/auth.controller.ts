@@ -54,7 +54,16 @@ export class AuthController {
 
   @ApiOperation({ summary: 'Register a user' })
   @Post('register')
-  async create(@Body() data: CreateUserDto, @Req() req: Request) {
+  @UseInterceptors(
+    FileInterceptor('image', {
+      storage: memoryStorage(),
+    }),
+  )
+  async create(
+    @Body() data: CreateUserDto,
+    @Req() req: Request,
+    @UploadedFile() image: Express.Multer.File,
+  ) {
     try {
       const name = data.name;
       const email = data.email;
@@ -88,7 +97,10 @@ export class AuthController {
         password: password,
         bio: bio,
         type: type,
+        image: image,
       });
+
+      console.log('image form controller', image);
 
       return response;
     } catch (error) {

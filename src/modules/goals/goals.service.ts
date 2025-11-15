@@ -7,31 +7,40 @@ export class GoalsService {
 
   async createGoal(userId: string, payload: any) {
     try {
-      if (!userId) throw new Error('User ID is required');
+      if (!userId) return { error: 'User ID is required' };
 
       const alreadyExists = await this.prisma.goal.findFirst({
         where: { user_id: userId },
       });
 
       if (alreadyExists) {
-        throw new Error(
-          'A goal already exists for this user please update the existing goal instead.',
-        );
+        return {
+          error:
+            'A goal already exists for this user please update the existing goal instead.',
+        };
       }
 
-      const goal = await this.prisma.goal.create({
-        data: {
-          user_id: userId,
-          title: payload.title,
-          current_value: payload.current_value ?? null,
-          target_value: payload.target_value ?? null,
-          target_date: payload.target_date
-            ? new Date(payload.target_date)
-            : null,
-          frequency_per_week: payload.frequency_per_week ?? null,
-          motivation: payload.motivation ?? null,
-        },
-      });
+      const data: any = {
+        user_id: userId,
+        title: payload.title,
+        current_value: payload.current_value ?? null,
+        target_value: payload.target_value ?? null,
+        target_date: payload.target_date ? new Date(payload.target_date) : null,
+        frequency_per_week: payload.frequency_per_week ?? null,
+        motivation: payload.motivation ?? null,
+      };
+
+      // if coach_id provided, validate existence and attach
+      if (payload.coach_id) {
+        const coach = await this.prisma.user.findUnique({
+          where: { id: payload.coach_id },
+          include: { coach_profile: true },
+        });
+        if (!coach) throw new Error('Specified coach not found');
+        data.coach_id = payload.coach_id;
+      }
+
+      const goal = await this.prisma.goal.create({ data });
       return goal;
     } catch (e) {
       throw e;
@@ -67,11 +76,57 @@ export class GoalsService {
     const goals = await this.prisma.goal.findMany({
       where: { user_id: userId },
       include: {
-        progress: { orderBy: { created_at: 'desc' } },
-        coach_notes: true,
+        progress: { orderBy: { created_at: 'desc' }, take: 1 },
+        coach_notes: { orderBy: { created_at: 'desc' }, take: 3 },
       },
     });
-    return goals;
+
+    const mapped = goals.map((g) => {
+      const latest = g.progress?.[0] ?? null;
+
+      let percent: number | null = null;
+      if (typeof g.progress_percent === 'number') {
+        percent = g.progress_percent;
+      } else {
+        const currentVal = parseFloat(
+          String(latest?.current_weight ?? g.current_value ?? ''),
+        );
+        const targetVal = parseFloat(String(g.target_value ?? ''));
+        if (!Number.isNaN(currentVal) && !Number.isNaN(targetVal) && targetVal > 0) {
+          percent = Math.min(100, Math.floor((currentVal / targetVal) * 100));
+        }
+      }
+
+      let progress_label: string | null = null;
+      if (latest?.current_weight != null && g.target_value != null) {
+        progress_label = `${latest.current_weight}/${g.target_value}`;
+      } else if (g.current_value != null && g.target_value != null) {
+        progress_label = `${g.current_value}/${g.target_value}`;
+      }
+
+      return {
+        id: g.id,
+        title: g.title,
+        progress_percent: percent,
+        current_value: latest?.current_weight ?? g.current_value,
+        target_value: g.target_value,
+        target_date: g.target_date,
+        frequency_per_week: g.frequency_per_week,
+        motivation: g.motivation,
+        latest_progress: latest,
+        coach_notes: g.coach_notes ?? [],
+        progress_label,
+      };
+    });
+
+    const percents = mapped
+      .map((m) => (typeof m.progress_percent === 'number' ? m.progress_percent : null))
+      .filter((p) => p !== null) as number[];
+    const overall_percent = percents.length
+      ? Math.floor(percents.reduce((a, b) => a + b, 0) / percents.length)
+      : 0;
+
+    return { overall_percent, goals: mapped };
   }
 
   async getGoal(goalId: string, userId?: string) {
@@ -104,6 +159,7 @@ export class GoalsService {
         current_weight: payload.current_weight ?? null,
         training_duration: payload.training_duration ?? null,
         calories_burned: payload.calories_burned ?? null,
+        calories_gained: payload.calories_gained ?? null,
         sets_per_session: payload.sets_per_session ?? null,
         notes: payload.notes ?? null,
       },
@@ -156,20 +212,77 @@ export class GoalsService {
     return { items, total, page, limit };
   }
 
-  async addCoachNote(
-    userId: string,
-    coachId: string,
-    goalId: string,
-    note: string,
-  ) {
-    // Only allow if goal exists and belongs to user
-    const goal = await this.prisma.goal.findUnique({ where: { id: goalId } });
-    if (!goal || goal.user_id !== userId)
-      throw new NotFoundException('Goal not found');
+  async addCoachNote(coachId: string, goalId: string, note: string) {
+    try {
+      if (!coachId) throw new Error('Coach ID is required');
 
-    const gn = await this.prisma.goalNote.create({
-      data: { user_id: userId, coach_id: coachId, goal_id: goalId, note },
+      const goal = await this.prisma.goal.findUnique({ where: { id: goalId } });
+      if (!goal) throw new NotFoundException('Goal not found');
+
+      const gn = await this.prisma.goalNote.create({
+        data: {
+          user_id: goal.user_id,
+          coach_id: coachId,
+          goal_id: goalId,
+          note,
+        },
+      });
+      return gn;
+    } catch (e) {
+      throw e;
+    }
+  }
+
+  // Assign a coach to a goal (only owner can assign)
+  async assignCoach(userId: string, goalId: string, coachId: string) {
+    const goal = await this.prisma.goal.findUnique({ where: { id: goalId } });
+    if (!goal) throw new NotFoundException('Goal not found');
+    if (goal.user_id !== userId)
+      throw new NotFoundException('Goal not found or access denied');
+
+    // ensure coach exists
+    const coach = await this.prisma.user.findUnique({
+      where: { id: coachId },
+      include: { coach_profile: true },
     });
-    return gn;
+    if (!coach) throw new NotFoundException('Coach user not found');
+
+    const updated = await this.prisma.goal.update({
+      where: { id: goalId },
+      data: { coach_id: coachId },
+    });
+    return updated;
+  }
+
+  async unassignCoach(userId: string, goalId: string) {
+    const goal = await this.prisma.goal.findUnique({ where: { id: goalId } });
+    if (!goal) throw new NotFoundException('Goal not found');
+    if (goal.user_id !== userId)
+      throw new NotFoundException('Goal not found or access denied');
+
+    const updated = await this.prisma.goal.update({
+      where: { id: goalId },
+      data: { coach_id: null },
+    });
+    return updated;
+  }
+
+  // For coaches: list goals assigned to them
+  async getAssignedGoals(coachId: string) {
+    try {
+      if (!coachId) return { error: 'Coach ID is required' };
+
+      const goals = await this.prisma.goal.findMany({
+        where: { coach_id: coachId },
+        include: {
+          progress: { orderBy: { created_at: 'desc' } },
+          coach_notes: true,
+          user: { select: { id: true, name: true, avatar: true } },
+        },
+      });
+      return goals;
+    } catch (e) {
+      return { error: e.message || 'An error occurred' };
+    }
   }
 }

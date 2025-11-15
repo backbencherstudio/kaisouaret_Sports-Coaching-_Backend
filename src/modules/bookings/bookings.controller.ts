@@ -176,6 +176,16 @@ export class BookingsController {
     return this.bookingsService.getBookingById(athleteId, bookingId);
   }
 
+
+  // @ApiOperation({ summary: 'generate a validation token for a booking by athlete' })
+  // @Post(':bookingId/token')
+  // async generateBookingValidationToken(
+  //   @GetUser('userId') athleteId: string,
+  //   @Param('bookingId') bookingId: string,
+  // ) {
+  //   return this.bookingsService.generateBookingValidationToken(athleteId, bookingId);
+  // }
+
   @ApiOperation({
     summary: "athlete fetches the booking's validation token (if available)",
   })

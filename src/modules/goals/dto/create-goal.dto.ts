@@ -1,4 +1,10 @@
-import { IsNotEmpty, IsOptional, IsString, IsInt, IsDateString } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsInt,
+  IsDateString,
+} from 'class-validator';
 
 export class CreateGoalDto {
   @IsNotEmpty()
@@ -24,4 +30,8 @@ export class CreateGoalDto {
   @IsOptional()
   @IsString()
   motivation?: string;
+
+  @IsOptional()
+  @IsString()
+  coach_id?: string;
 }
