@@ -101,7 +101,9 @@ model User {
   user_badges          UserBadge[]
   user_goals           Goal[]
   goal_notes           GoalNote[]
-  coach_notes          GoalNote[] @relation("coach_notes")
+  coach_notes          GoalNote[]           @relation("coach_notes")
+  coached_goals        Goal[]               @relation("goal_coach")
+  videos               Video[]
 
   @@map("users")
 }
@@ -140,14 +142,13 @@ model CoachProfile {
   subscription_reference  String?
 
   // aggregated rating fields (avg + count) for fast public display
-  avg_rating Decimal?
-  rating_count Int? @default(0)
-  rgpd_laws_agreement Boolean @default(false)
+  avg_rating          Decimal?
+  rating_count        Int?     @default(0)
+  rgpd_laws_agreement Boolean  @default(false)
 
   bookings        Booking[]
   sessionsPackage SessionsPackage[]
   coach_reviews   CoachReview[]
-
 
   @@map("coach_profiles")
 }
@@ -197,8 +198,8 @@ model CoachReview {
   athlete    User   @relation(fields: [athlete_id], references: [id], onDelete: Cascade)
 
   review_text String?
-  booking_id String?
-  rating     Int?
+  booking_id  String?
+  rating      Int?
 
   @@map("coach_reviews")
 }
@@ -659,7 +660,11 @@ model Goal {
   // aggregated summary to speed up reads
   progress_percent Int? @default(0)
 
-  progress GoalProgress[]
+  // optional assigned coach for this goal
+  coach_id String?
+  coach    User?   @relation("goal_coach", fields: [coach_id], references: [id], onDelete: SetNull)
+
+  progress    GoalProgress[]
   coach_notes GoalNote[]
 
   @@map("goals")
@@ -677,10 +682,11 @@ model GoalProgress {
   recorded_at DateTime @default(now())
 
   // optional structured fields shown in the UI
-  previous_weight Float?
-  current_weight  Float?
-  training_duration Int?    // minutes
+  previous_weight   Float?
+  current_weight    Float?
+  training_duration Int? // minutes
   calories_burned   Int?
+  calories_gained   Int?
   sets_per_session  Int?
 
   notes String?
@@ -705,6 +711,28 @@ model GoalNote {
   note String?
 
   @@map("goal_notes")
+}
+
+// Video community for coach-uploaded premium content
+model Video {
+  id          String   @id @default(cuid())
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  coach_id    String
+  coach       User     @relation(fields: [coach_id], references: [id], onDelete: Cascade)
+
+  title       String
+  description String?
+  video_key   String   // stored key/path in storage (driver-agnostic)
+  thumbnail   String?
+  duration    Int?     // seconds
+  is_premium  Boolean  @default(true)
+
+  view_count  Int?     @default(0)
+  like_count  Int?     @default(0)
+
+  @@map("videos")
 }
 
 // this table stores example
