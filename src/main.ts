@@ -21,7 +21,11 @@ async function bootstrap() {
   app.use('/payment/stripe/webhook', express.raw({ type: 'application/json' }));
 
   app.setGlobalPrefix('api', {
-    exclude: [{ path: '/', method: RequestMethod.GET }],
+    exclude: [
+      { path: '/', method: RequestMethod.GET },
+      { path: '/subscription/success', method: RequestMethod.GET },
+      { path: '/subscription/cancel', method: RequestMethod.GET },
+    ],
   });
   app.enableCors();
   app.use(helmet());

@@ -7,6 +7,8 @@ import { UserModule } from './user/user.module';
 import { NotificationModule } from './notification/notification.module';
 import { Admin_dashboardModule } from './admin_dashboard/users/users.module';
 import { UserListModule } from './user-management/user-list/user-list.module';
+import { SubscriptionPlansController } from './subscription-plans/subscription-plans.controller';
+import { StripeModule } from '../payment/stripe/stripe.module';
 
 @Module({
   imports: [
@@ -18,6 +20,8 @@ import { UserListModule } from './user-management/user-list/user-list.module';
     NotificationModule,
     Admin_dashboardModule,
     UserListModule,
+    StripeModule,
   ],
+  controllers: [SubscriptionPlansController],
 })
 export class AdminModule {}

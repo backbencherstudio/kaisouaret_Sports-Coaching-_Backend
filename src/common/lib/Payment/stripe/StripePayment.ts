@@ -151,9 +151,8 @@ export class StripePayment {
    * @returns
    */
   static async createCheckoutSession() {
-    const success_url = `${
-      appConfig().app.url
-    }/success?session_id={CHECKOUT_SESSION_ID}`;
+    const success_url = `${appConfig().app.url
+      }/success?session_id={CHECKOUT_SESSION_ID}`;
     const cancel_url = `${appConfig().app.url}/failed`;
 
     const session = await Stripe.checkout.sessions.create({
@@ -189,9 +188,8 @@ export class StripePayment {
     customer: string,
     price: string,
   ) {
-    const success_url = `${
-      appConfig().app.url
-    }/success?session_id={CHECKOUT_SESSION_ID}`;
+    const success_url = `${appConfig().app.url
+      }/success?session_id={CHECKOUT_SESSION_ID}`;
     const cancel_url = `${appConfig().app.url}/failed`;
 
     const session = await Stripe.checkout.sessions.create({
@@ -460,4 +458,159 @@ export class StripePayment {
     );
     return event;
   }
+
+  //subscription management
+  static async createProduct({
+    name,
+    description,
+  }: {
+    name: string;
+    description?: string;
+  }): Promise<stripe.Product> {
+    return await Stripe.products.create({
+      name,
+      description,
+    });
+  }
+
+  // Create a Price for a Product
+  static async createPrice({
+    product_id,
+    amount,
+    currency = 'usd',
+    interval = 'month',
+  }: {
+    product_id: string;
+    amount: number; 
+    currency?: string;
+    interval?: 'month' | 'year';
+  }): Promise<stripe.Price> {
+    return await Stripe.prices.create({
+      product: product_id,
+      unit_amount: amount * 100, 
+      currency,
+      recurring: {
+        interval,
+      },
+    });
+  }
+
+  // Create Subscription Checkout Session
+  static async createSubscriptionCheckoutSession({
+    customer_id,
+    price_id,
+    success_url,
+    cancel_url,
+    metadata,
+  }: {
+    customer_id: string;
+    price_id: string;
+    success_url: string;
+    cancel_url: string;
+    metadata?: stripe.MetadataParam;
+  }): Promise<stripe.Checkout.Session> {
+    return await Stripe.checkout.sessions.create({
+      mode: 'subscription',
+      customer: customer_id,
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price: price_id,
+          quantity: 1,
+        },
+      ],
+      success_url,
+      cancel_url,
+      metadata,
+    });
+  }
+
+  // Create Subscription directly (without checkout)
+  static async createSubscription({
+    customer_id,
+    price_id,
+    metadata,
+  }: {
+    customer_id: string;
+    price_id: string;
+    metadata?: stripe.MetadataParam;
+  }): Promise<stripe.Subscription> {
+    return await Stripe.subscriptions.create({
+      customer: customer_id,
+      items: [{ price: price_id }],
+      metadata,
+    });
+  }
+
+  // Cancel Subscription
+  static async cancelSubscription(
+    subscription_id: string,
+    cancel_at_period_end: boolean = true,
+  ): Promise<stripe.Subscription> {
+    if (cancel_at_period_end) {
+      return await Stripe.subscriptions.update(subscription_id, {
+        cancel_at_period_end: true,
+      });
+    } else {
+      return await Stripe.subscriptions.cancel(subscription_id);
+    }
+  }
+
+  // Resume Subscription
+  static async resumeSubscription(
+    subscription_id: string,
+  ): Promise<stripe.Subscription> {
+    return await Stripe.subscriptions.update(subscription_id, {
+      cancel_at_period_end: false,
+    });
+  }
+
+  // Update Subscription (change plan)
+  static async updateSubscription({
+    subscription_id,
+    price_id,
+    proration_behavior = 'create_prorations',
+  }: {
+    subscription_id: string;
+    price_id: string;
+    proration_behavior?: 'create_prorations' | 'none' | 'always_invoice';
+  }): Promise<stripe.Subscription> {
+    const subscription = await Stripe.subscriptions.retrieve(subscription_id);
+
+    return await Stripe.subscriptions.update(subscription_id, {
+      items: [
+        {
+          id: subscription.items.data[0].id,
+          price: price_id,
+        },
+      ],
+      proration_behavior,
+    });
+  }
+
+  // Get Subscription
+  static async getSubscription(
+    subscription_id: string,
+  ): Promise<stripe.Subscription> {
+    return await Stripe.subscriptions.retrieve(subscription_id);
+  }
+
+  // Get Checkout Session
+  static async getCheckoutSession(
+    session_id: string,
+  ): Promise<stripe.Checkout.Session> {
+    return await Stripe.checkout.sessions.retrieve(session_id);
+  }
+
+  // List Customer Subscriptions
+  static async listCustomerSubscriptions(
+    customer_id: string,
+  ): Promise<stripe.Subscription[]> {
+    const subscriptions = await Stripe.subscriptions.list({
+      customer: customer_id,
+      status: 'all',
+    });
+    return subscriptions.data;
+  }
+
 }

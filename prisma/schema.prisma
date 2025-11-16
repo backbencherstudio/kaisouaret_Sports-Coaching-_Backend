@@ -102,16 +102,51 @@ model User {
   user_goals           Goal[]
   goal_notes           GoalNote[]
   coach_notes          GoalNote[] @relation("coach_notes")
+  user_subscriptions   UserSubscription[]
 
   @@map("users")
 }
+model SubscriptionPlan {
+  id          String   @id @default(cuid())
+  created_at  DateTime @default(now())
+  updated_at  DateTime @default(now())
+  deleted_at  DateTime?
+  name        String
+  price       Decimal  
+  currency    String   @default("USD")
+  interval    String   @default("month") 
+  stripe_price_id String @unique
+  features    Json?
+  description String?
+  is_active   Int?     @default(1) @db.SmallInt
+  sort_order  Int?     @default(0)
+  subscriptions UserSubscription[]
 
+  @@map("subscription_plans")
+}
+
+model UserSubscription {
+  id         String   @id @default(cuid())
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+  deleted_at DateTime?
+  user_id    String
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)  
+  plan_id    String
+  plan       SubscriptionPlan @relation(fields: [plan_id], references: [id])
+  stripe_subscription_id String? @unique
+  status     String? 
+  current_period_start DateTime?
+  current_period_end   DateTime?
+  cancel_at_period_end Boolean? @default(false)
+
+  @@map("user_subscriptions")
+}
 model CoachProfile {
   id         String   @id @default(cuid())
   created_at DateTime @default(now())
   updated_at DateTime @default(now())
   status     Int?     @default(1) @db.SmallInt
-
   user_id String @unique
   user    User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
@@ -383,7 +418,6 @@ model Booking {
   updated_at DateTime  @default(now())
   deleted_at DateTime?
   title      String?
-
   coach_id String
   user_id  String
   user     User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
