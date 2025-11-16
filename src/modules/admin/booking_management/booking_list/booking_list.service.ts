@@ -33,20 +33,14 @@ export class BookingListService {
         status: createBookingListDto.status || 'PENDING',
         session_package_id: createBookingListDto.session_package_id,
       };
-
-      // Handle image upload if provided
       if (image) {
         try {
           const fileName = `${StringHelper.randomString()}${image.originalname}`;
-          // Using attachment storage path for booking images
           const imageKey = `${appConfig().storageUrl.attachment}/${fileName}`;
           await SazedStorage.put(
             imageKey,
             image.buffer,
           );
-          // Store image filename in booking data (you may need to add an image field to the schema)
-          // For now, we'll store it in notes or description if needed
-          // bookingData.image = fileName;
         } catch (imageError: any) {
           return {
             success: false,
@@ -54,8 +48,6 @@ export class BookingListService {
           };
         }
       }
-
-      // Remove undefined fields
       Object.keys(bookingData).forEach(key => {
         if (bookingData[key] === undefined) {
           delete bookingData[key];
@@ -114,8 +106,6 @@ export class BookingListService {
       const andConditions: any[] = [
         { deleted_at: null },
       ];
-
-      // Search by athlete name, coach name, or title
       if (search) {
         andConditions.push({
           OR: [
@@ -125,8 +115,6 @@ export class BookingListService {
           ],
         });
       }
-
-      // Filter by status
       if (status) {
         andConditions.push({ status: status });
       }
@@ -174,8 +162,6 @@ export class BookingListService {
           where: where_condition,
         }),
       ]);
-
-      // Format bookings similar to the UI format
       const formattedBookings = bookings.map((booking) => ({
         id: booking.id,
         athlete_name: booking.user?.name || 'N/A',
@@ -233,13 +219,9 @@ export class BookingListService {
       const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const todayEnd = new Date(todayStart);
       todayEnd.setDate(todayEnd.getDate() + 1);
-
-      // Previous period (yesterday)
       const yesterdayStart = new Date(todayStart);
       yesterdayStart.setDate(yesterdayStart.getDate() - 1);
       const yesterdayEnd = new Date(todayStart);
-
-      // Get all bookings (not deleted)
       const allBookings = await this.prisma.booking.findMany({
         where: {
           deleted_at: null,
@@ -251,8 +233,6 @@ export class BookingListService {
           created_at: true,
         },
       });
-
-      // Get today's bookings
       const todayBookings = await this.prisma.booking.findMany({
         where: {
           deleted_at: null,
@@ -262,8 +242,6 @@ export class BookingListService {
           },
         },
       });
-
-      // Get yesterday's bookings
       const yesterdayBookings = await this.prisma.booking.findMany({
         where: {
           deleted_at: null,
@@ -274,19 +252,16 @@ export class BookingListService {
         },
       });
 
-      // Calculate metrics
       const totalBookingsToday = todayBookings.length;
       const totalBookingsYesterday = yesterdayBookings.length;
       const totalBookingsChange = totalBookingsToday - totalBookingsYesterday;
 
-      // Calculate completion rate
       const totalBookings = allBookings.length;
       const completedBookings = allBookings.filter(b => b.status === 'COMPLETED').length;
       const currentCompletionRate = totalBookings > 0 
         ? Math.round((completedBookings / totalBookings) * 100) 
         : 0;
 
-      // Calculate previous period completion rate (e.g., last 7 days vs previous 7 days)
       const last7DaysStart = new Date(now);
       last7DaysStart.setDate(last7DaysStart.getDate() - 7);
       const previous7DaysStart = new Date(last7DaysStart);
@@ -331,14 +306,11 @@ export class BookingListService {
         : 0;
       const completionRateChange = last7DaysCompletionRate - previous7DaysCompletionRate;
 
-      // Calculate average session duration
       const bookingsWithDuration = allBookings.filter(b => b.duration_minutes !== null && b.duration_minutes !== undefined);
       const totalDuration = bookingsWithDuration.reduce((sum, b) => sum + (b.duration_minutes || 0), 0);
       const averageSessionDuration = bookingsWithDuration.length > 0 
         ? Math.round(totalDuration / bookingsWithDuration.length) 
         : 0;
-
-      // Calculate previous period average duration
       const last7DaysBookingsWithDuration = await this.prisma.booking.findMany({
         where: {
           deleted_at: null,
@@ -380,13 +352,10 @@ export class BookingListService {
         : 0;
       const avgDurationChange = last7DaysAvgDuration - previous7DaysAvgDuration;
 
-      // Calculate cancellation rate
       const cancelledBookings = allBookings.filter(b => b.status === 'CANCELLED').length;
       const currentCancellationRate = totalBookings > 0 
         ? Number(((cancelledBookings / totalBookings) * 100).toFixed(1)) 
         : 0;
-
-      // Previous period cancellation rate
       const last7DaysCancelled = last7DaysBookings.filter(b => b.status === 'CANCELLED').length;
       const previous7DaysCancelled = previous7DaysBookings.filter(b => b.status === 'CANCELLED').length;
       const last7DaysCancellationRate = last7DaysTotal > 0 
@@ -441,8 +410,6 @@ export class BookingListService {
         recipient_type,
         recipient_ids,
       } = sendBulkNotificationDto;
-
-      // Validate recipient_ids if recipient_type is SPECIFIC
       if (recipient_type === RecipientType.SPECIFIC) {
         if (!recipient_ids || recipient_ids.length === 0) {
           return {
@@ -451,13 +418,10 @@ export class BookingListService {
           };
         }
       }
-
-      // Get recipients based on type
       let recipientUserIds: string[] = [];
 
       switch (recipient_type) {
         case RecipientType.ALL:
-          // Get all active users
           const allUsers = await this.prisma.user.findMany({
             where: {
               deleted_at: null,
@@ -471,7 +435,6 @@ export class BookingListService {
           break;
 
         case RecipientType.COACHES:
-          // Get all coaches
           const coaches = await this.prisma.user.findMany({
             where: {
               deleted_at: null,
@@ -486,7 +449,6 @@ export class BookingListService {
           break;
 
         case RecipientType.ATHLETES:
-          // Get all athletes (users with type 'user')
           const athletes = await this.prisma.user.findMany({
             where: {
               deleted_at: null,
@@ -501,7 +463,6 @@ export class BookingListService {
           break;
 
         case RecipientType.SPECIFIC:
-          // Validate that all recipient IDs exist
           if (recipient_ids && recipient_ids.length > 0) {
             const validUsers = await this.prisma.user.findMany({
               where: {
@@ -515,8 +476,6 @@ export class BookingListService {
               },
             });
             recipientUserIds = validUsers.map((user) => user.id);
-
-            // Check if all provided IDs are valid
             if (validUsers.length !== recipient_ids.length) {
               return {
                 success: false,
@@ -539,9 +498,6 @@ export class BookingListService {
           message: 'No recipients found for the selected recipient type',
         };
       }
-
-      // Create a single notification event for bulk notification
-      // Format: "Title: Message Content"
       const notificationText = `${notification_title}: ${message_content}`;
 
       const notificationEvent = await this.prisma.notificationEvent.create({
@@ -551,8 +507,6 @@ export class BookingListService {
           status: 1,
         },
       });
-
-      // Create notifications for all recipients linked to the same event
       const notificationPromises = recipientUserIds.map(async (receiverId) => {
         return this.prisma.notification.create({
           data: {
@@ -562,11 +516,7 @@ export class BookingListService {
           },
         });
       });
-
-      // Execute all notification creations in parallel
       const notifications = await Promise.all(notificationPromises);
-
-      // Return detailed response with notification IDs for verification
       return {
         success: true,
         message: `Bulk notification sent successfully to ${notifications.length} recipients`,
@@ -578,7 +528,6 @@ export class BookingListService {
           notifications_created: notifications.length,
           notification_event_id: notificationEvent.id,
           created_at: new Date(),
-          // Include first few notification IDs for verification
           sample_notification_ids: notifications.slice(0, 5).map(n => n.id),
         },
       };
@@ -592,7 +541,6 @@ export class BookingListService {
 
   async checkNotificationStatus(eventId: string) {
     try {
-      // Get notification event
       const notificationEvent = await this.prisma.notificationEvent.findUnique({
         where: {
           id: eventId,
@@ -611,8 +559,6 @@ export class BookingListService {
           message: 'Notification event not found',
         };
       }
-
-      // Get all notifications linked to this event
       const notifications = await this.prisma.notification.findMany({
         where: {
           notification_event_id: eventId,
@@ -636,8 +582,6 @@ export class BookingListService {
       const totalSent = notifications.length;
       const totalRead = notifications.filter(n => n.read_at !== null).length;
       const totalUnread = totalSent - totalRead;
-
-      // Parse notification text to extract title and message
       const textParts = notificationEvent.text.split(': ');
       const title = textParts[0] || notificationEvent.text;
       const message = textParts.slice(1).join(': ') || '';
@@ -679,7 +623,6 @@ export class BookingListService {
 
   async getUserNotifications(userId: string) {
     try {
-      // Verify user exists
       const user = await this.prisma.user.findUnique({
         where: {
           id: userId,
@@ -697,8 +640,6 @@ export class BookingListService {
           message: 'User not found',
         };
       }
-
-      // Get all notifications for this user
       const notifications = await this.prisma.notification.findMany({
         where: {
           receiver_id: userId,
@@ -728,10 +669,8 @@ export class BookingListService {
             },
           },
         },
-        take: 50, // Limit to last 50 notifications
+        take: 50, 
       });
-
-      // Format notifications
       const formattedNotifications = notifications.map(notification => {
         const textParts = notification.notification_event.text.split(': ');
         const title = textParts[0] || notification.notification_event.text;

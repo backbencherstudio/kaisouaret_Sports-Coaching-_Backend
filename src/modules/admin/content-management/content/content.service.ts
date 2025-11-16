@@ -45,8 +45,6 @@ export class ContentService {
           created_at: 'desc',
         },
       });
-
-      // Format the response to match the UI requirements
       const formattedCoaches = coaches.map((coach) => ({
         id: coach.id,
         name: coach.name || 'N/A',
@@ -123,18 +121,13 @@ export class ContentService {
           appointment_date: 'desc',
         },
       });
-
-      // Format the response to match the UI requirements
       const formattedSessions = bookings.map((booking) => {
-        // Format date: 1/20/2025
         const appointmentDate = booking.appointment_date
           ? new Date(booking.appointment_date)
           : null;
         const formattedDate = appointmentDate
           ? `${appointmentDate.getMonth() + 1}/${appointmentDate.getDate()}/${appointmentDate.getFullYear()}`
           : 'N/A';
-
-        // Format time: 15:00 (24-hour format)
         const sessionTime = booking.session_time
           ? new Date(booking.session_time)
           : appointmentDate;
@@ -190,8 +183,6 @@ export class ContentService {
 
   async getContentApprovalList() {
     try {
-      // Get coach profiles that have been recently updated (within last 30 days)
-      // or profiles that were updated but not yet approved
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
@@ -220,13 +211,8 @@ export class ContentService {
           updated_at: 'desc',
         },
       });
-
-      // Format the response to match the UI requirements
       const formattedContent = coachProfiles.map((profile) => {
-        // Determine what changed based on updated_at vs created_at
         const wasRecentlyUpdated = profile.updated_at > profile.created_at;
-        
-        // Detect what type of update it might be
         let updateType = 'Profile Update';
         let description = 'Updated profile information';
         
@@ -262,8 +248,6 @@ export class ContentService {
           },
         };
       });
-
-      // Filter to show only pending approvals
       const pendingContent = formattedContent.filter((item) => item.is_pending);
 
       return {
@@ -282,7 +266,6 @@ export class ContentService {
   async approveContent(id: string, type: string = 'coach_profile') {
     try {
       if (type === 'coach_profile') {
-        // Approve coach profile by updating user's approved_at
         const coachProfile = await this.prisma.coachProfile.findUnique({
           where: { id },
           select: { user_id: true },
@@ -305,7 +288,6 @@ export class ContentService {
           message: 'Content approved successfully',
         };
       } else if (type === 'user') {
-        // Approve user directly
         const user = await this.prisma.user.findUnique({
           where: { id },
         });
@@ -343,7 +325,6 @@ export class ContentService {
   async rejectContent(id: string, type: string = 'coach_profile', reason?: string) {
     try {
       if (type === 'coach_profile') {
-        // Reject coach profile by removing approval
         const coachProfile = await this.prisma.coachProfile.findUnique({
           where: { id },
           select: { user_id: true },
@@ -366,7 +347,6 @@ export class ContentService {
           message: reason ? `Content rejected: ${reason}` : 'Content rejected successfully',
         };
       } else if (type === 'user') {
-        // Reject user directly
         const user = await this.prisma.user.findUnique({
           where: { id },
         });
