@@ -9,6 +9,8 @@ import { Admin_dashboardModule } from './admin_dashboard/users/users.module';
 import { UserListModule } from './user-management/user-list/user-list.module';
 import { SubscriptionPlansController } from './subscription-plans/subscription-plans.controller';
 import { StripeModule } from '../payment/stripe/stripe.module';
+import { BookingListModule } from './booking_management/booking_list/booking_list.module';
+import { ContentModule } from './content-management/content/content.module';
 
 @Module({
   imports: [
@@ -21,6 +23,9 @@ import { StripeModule } from '../payment/stripe/stripe.module';
     Admin_dashboardModule,
     UserListModule,
     StripeModule,
+    BookingListModule,
+    BookingListModule,
+    ContentModule
   ],
   controllers: [SubscriptionPlansController],
 })

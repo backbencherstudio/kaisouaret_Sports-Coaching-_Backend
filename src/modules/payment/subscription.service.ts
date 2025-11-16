@@ -6,8 +6,6 @@ import appConfig from '../../config/app.config';
 @Injectable()
 export class SubscriptionService {
   constructor(private prisma: PrismaService) {}
-
-  // Create or Sync Subscription Plan with Stripe
   async createOrUpdatePlan({
     plan_id,
     name,
@@ -25,21 +23,16 @@ export class SubscriptionService {
     features?: string[];
     description?: string;
   }) {
-    // Create Product in Stripe
     const product = await StripePayment.createProduct({
       name,
       description,
     });
-
-    // Create Price in Stripe
     const stripePrice = await StripePayment.createPrice({
       product_id: product.id,
       amount: price,
       currency: currency.toLowerCase(),
       interval: interval as 'month' | 'year',
     });
-
-    // Save to database
     if (plan_id) {
       return await this.prisma.subscriptionPlan.update({
         where: { id: plan_id },
@@ -78,7 +71,6 @@ export class SubscriptionService {
       const user = await this.prisma.user.findUnique({
         where: { id: user_id },
       });
-
       if (!user) {
         throw new NotFoundException('User not found');
       }
@@ -110,7 +102,6 @@ export class SubscriptionService {
           data: { billing_id: customer_id },
         });
       }
-      // Use CLIENT_APP_URL if available, otherwise use APP_URL
       const baseUrl = appConfig().app.client_app_url || appConfig().app.url;
       const session = await StripePayment.createSubscriptionCheckoutSession({
         customer_id,
@@ -162,8 +153,6 @@ export class SubscriptionService {
       subscription.stripe_subscription_id,
       !cancel_immediately,
     );
-
-    // Update database
     return await this.prisma.userSubscription.update({
       where: { id: subscription.id },
       data: {
@@ -172,8 +161,6 @@ export class SubscriptionService {
       },
     });
   }
-
-  // Get User's Current Subscription
   async getUserSubscription(user_id: string) {
     const subscription = await this.prisma.userSubscription.findFirst({
       where: {
@@ -189,8 +176,6 @@ export class SubscriptionService {
       hasSubscription: !!subscription,
     };
   }
-
-  // List All Plans
   async getAllPlans() {
     return await this.prisma.subscriptionPlan.findMany({
       where: {
