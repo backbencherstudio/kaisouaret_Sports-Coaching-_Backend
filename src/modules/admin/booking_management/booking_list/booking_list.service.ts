@@ -390,7 +390,7 @@ export class BookingListService {
             value: last7DaysCancellationRate,
             unit: '%',
             change: cancellationRateChange,
-            is_positive: cancellationRateChange <= 0, // Lower is better for cancellation
+            is_positive: cancellationRateChange <= 0, 
           },
         },
       };
