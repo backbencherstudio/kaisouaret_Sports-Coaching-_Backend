@@ -54,19 +54,16 @@ export class AuthController {
   }
 
   @ApiOperation({ summary: 'Register a user' })
+  @Post('register')
   @UseInterceptors(
-    FileInterceptor('image', {
+    FileInterceptor('avatar', {
       storage: memoryStorage(),
     }),
   )
-  @Post('register')
   async create(
     @Body() data: CreateUserDto,
 
-    @UploadedFiles()
-    files: {
-      avatar?: Express.Multer.File[];
-    },
+    @UploadedFile() avatar?: Express.Multer.File,
   ) {
     try {
       const name = data.name;
@@ -77,7 +74,7 @@ export class AuthController {
       const phone_number = data.phone_number;
       const date_of_birth = data.date_of_birth;
       const bio = data.bio;
-      const image = files?.avatar ? files.avatar[0] : null;
+      const avatarFile = avatar;
 
       if (!name) {
         throw new HttpException('Name not provided', HttpStatus.UNAUTHORIZED);
@@ -93,7 +90,7 @@ export class AuthController {
         );
       }
 
-      console.log('avatar in controller', image);
+      console.log('avatar in controller', avatar);
 
       const response = await this.authService.register({
         name: name,
@@ -104,7 +101,7 @@ export class AuthController {
         password: password,
         bio: bio,
         type: type,
-        image: image,
+        avatar: avatarFile,
       });
 
       return response;
@@ -264,32 +261,21 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @Patch('update')
   @UseInterceptors(
-    FileInterceptor('image', {
-      // storage: diskStorage({
-      //   destination:
-      //     appConfig().storageUrl.rootUrl + appConfig().storageUrl.avatar,
-      //   filename: (req, file, cb) => {
-      //     const randomName = Array(32)
-      //       .fill(null)
-      //       .map(() => Math.round(Math.random() * 16).toString(16))
-      //       .join('');
-      //     return cb(null, `${randomName}${file.originalname}`);
-      //   },
-      // }),
+    FileInterceptor('avatar', {
       storage: memoryStorage(),
     }),
   )
   async updateUser(
     @Req() req: Request,
     @Body() data: UpdateUserDto,
-    @UploadedFile() image: Express.Multer.File,
+    @UploadedFile() avatar: Express.Multer.File,
   ) {
     try {
       const user_id = req.user.userId;
-      const response = await this.authService.updateUser(user_id, data, image);
+      const response = await this.authService.updateUser(user_id, data, avatar);
       console.log('user_id', user_id);
       console.log('data', data);
-      console.log('image', image);
+      console.log('avatar', avatar);
       console.log('response', response);
       return response;
     } catch (error) {

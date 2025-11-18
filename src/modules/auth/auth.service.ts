@@ -86,12 +86,6 @@ export class AuthService {
         };
       }
 
-      if (user.avatar) {
-        user['avatar_url'] = SazedStorage.url(
-          appConfig().storageUrl.avatar + user.avatar,
-        );
-      }
-
       if (user) {
         return {
           success: true,
@@ -111,10 +105,156 @@ export class AuthService {
     }
   }
 
+  async register({
+    name,
+    email,
+    phone_number,
+    location,
+    date_of_birth,
+    password,
+    bio,
+    type,
+    avatar,
+  }: {
+    name: string;
+    email: string;
+    password: string;
+    location: string;
+    phone_number: string;
+    type?: string;
+    bio?: string;
+    date_of_birth?: string;
+    coach_profile?: any;
+    avatar?: Express.Multer.File;
+  }) {
+    try {
+      // Check if email already exist
+      const userEmailExist = await UserRepository.exist({
+        field: 'email',
+        value: String(email),
+      });
+
+      if (userEmailExist) {
+        return {
+          statusCode: 401,
+          message: 'Email already exist',
+        };
+      }
+
+      let mediaUrl: string | undefined = undefined;
+
+      if (avatar?.buffer) {
+        try {
+          const fileName = `${StringHelper.randomString()}${avatar.originalname}`;
+          await SazedStorage.put(
+            appConfig().storageUrl.avatar + '/' + fileName,
+            avatar.buffer,
+          );
+          console.log('fileName: ', fileName);
+
+          // set avatar url
+          mediaUrl = SazedStorage.url(
+            appConfig().storageUrl.avatar + '/' + fileName,
+          );
+        } catch (error) {
+          console.error('Failed to upload avatar:', error);
+          throw new Error(`Failed to upload avatar: ${error.message}`);
+        }
+      }
+
+      const user = await UserRepository.createUser({
+        name: name,
+        email: email,
+        phone_number: phone_number,
+        location: location,
+        bio: bio,
+        date_of_birth: date_of_birth,
+        age: DateHelper.calculateAge(date_of_birth),
+        password: password,
+        type: type,
+        avatar: mediaUrl,
+      });
+
+      if (user == null && user.success == false) {
+        return {
+          success: false,
+          message: 'Failed to create account',
+        };
+      }
+
+      // create stripe customer account
+      const stripeCustomer = await StripePayment.createCustomer({
+        user_id: user.data.id,
+        email: email,
+        name: name,
+      });
+
+      if (stripeCustomer) {
+        await this.prisma.user.update({
+          where: {
+            id: user.data.id,
+          },
+          data: {
+            billing_id: stripeCustomer.id,
+          },
+        });
+      }
+
+      // // If registering as a coach, create the coach profile record
+      // if (type === 'coach' && coach_profile) {
+      //   console.log('type is coach or not', type);
+
+      //   try {
+      //     await this.prisma.coachProfile.create({
+      //       data: {
+      //         user_id: user.data.id,
+      //         hourly_rate: coach_profile.hourly_rate ?? undefined,
+      //         hourly_currency: coach_profile.hourly_currency ?? null,
+      //       },
+      //     });
+      //   } catch (err) {
+      //     return {
+      //       success: false,
+      //       message:
+      //         'User created but failed to create coach profile: ' + err.message,
+      //     };
+      //   }
+      //   return {
+      //     success: true,
+      //     message: 'We have sent a verification link to your email',
+      //   };
+      // }
+
+      // Generate verification token
+      // const token = await UcodeRepository.createVerificationToken({
+      //   userId: user.data.id,
+      //   email: email,
+      // });
+
+      // // Send verification email with token
+      // await this.mailService.sendVerificationLink({
+      //   email,
+      //   name: email,
+      //   token: token.token,
+      //   type: type,
+      // });
+
+      return {
+        success: true,
+        message: 'Registered successfully',
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message,
+      };
+    }
+  }
+
   async updateUser(
     userId: string,
     updateUserDto: UpdateUserDto,
-    image?: Express.Multer.File,
+    avatar?: Express.Multer.File,
   ) {
     try {
       const data: any = {};
@@ -148,68 +288,41 @@ export class AuthService {
         data.specialties = updateUserDto.specialties;
       }
 
-      if (image) {
-        const fileName = `${StringHelper.randomString()}${image.originalname}`;
+      let mediaUrl: string | undefined;
+
+      if (avatar?.buffer) {
         try {
-          // Attempt upload first to avoid deleting old before success
-          // Normalize avatar key (remove leading slashes) to avoid double-slash issues
-          let avatarPath = String(appConfig().storageUrl.avatar || '/avatar/');
-          avatarPath = avatarPath.replace(/^\/+/, '');
-          const key = `${avatarPath}${fileName}`;
+          // 1. Upload new avatar
+          const fileName = `${StringHelper.randomString()}-${avatar.originalname}`;
+          const key = `${appConfig().storageUrl.avatar}/${fileName}`;
 
-          await SazedStorage.put(key, image.buffer);
+          await SazedStorage.put(key, avatar.buffer);
+          mediaUrl = SazedStorage.url(key);
 
-          // build avatar URL using SazedStorage.url for driver-agnostic URL
-          const mediaUrl = SazedStorage.url(key);
-
-          // delete old image from storage only after successful upload
-          const oldImage = await this.prisma.user.findFirst({
+          // 2. Get old avatar (if any)
+          const user = await this.prisma.user.findUnique({
             where: { id: userId },
             select: { avatar: true },
           });
 
-          if (oldImage?.avatar) {
+          // 3. Delete old avatar if exists and is not empty
+          if (user?.avatar) {
             try {
-              // Attempt to derive the storage key for the existing avatar and delete it.
-              const stored = oldImage.avatar as string;
-              // normalized avatarPath used for new keys
-              let avatarPath = String(
-                appConfig().storageUrl.avatar || '/avatar/',
-              );
-              avatarPath = avatarPath.replace(/^\/+/, '');
+              // If avatar stored is a full URL -> extract its path
+              const url = new URL(user.avatar);
+              const oldKey = url.pathname.replace(/^\/+/, ''); // remove leading slash
 
-              const attempts: string[] = [];
-              // 1) if stored looks like a URL, try to extract path after bucket or endpoint
-              if (/https?:\/\//.test(stored)) {
-                try {
-                  const u = new URL(stored);
-                  // build possible key from pathname without leading slash
-                  const p = u.pathname.replace(/^\/+/, '');
-                  attempts.push(p);
-                } catch (err) {
-                  // ignore
-                }
-              }
-              // 2) avatarPath + filename
-              attempts.push(`${avatarPath}${stored}`);
-              // 3) raw stored value (maybe already a key)
-              attempts.push(stored);
-
-              for (const k of attempts) {
-                try {
-                  await SazedStorage.delete(k);
-                } catch (err) {
-                  // continue trying other keys
-                }
-              }
-            } catch (e) {
-              console.warn('Failed to delete old avatar:', e?.message || e);
+              await SazedStorage.delete(oldKey);
+            } catch {
+              // If it wasn't a URL, assume it is the actual storage key
+              await SazedStorage.delete(user.avatar);
             }
           }
 
+          // 4. Update user's avatar
           data.avatar = mediaUrl;
-        } catch (e) {
-          console.warn('Avatar upload failed:', e?.message || e);
+        } catch (err: any) {
+          console.warn('Avatar upload failed:', err.message || err);
         }
       }
 
@@ -441,147 +554,6 @@ export class AuthService {
       return {
         success: true,
         message: 'Profile updated successfully',
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
-    }
-  }
-
-  async register({
-    name,
-    email,
-    phone_number,
-    location,
-    date_of_birth,
-    password,
-    bio,
-    type,
-    image,
-  }: {
-    name: string;
-    email: string;
-    password: string;
-    location: string;
-    phone_number: string;
-    type?: string;
-    bio?: string;
-    date_of_birth?: string;
-    coach_profile?: any;
-    image?: Express.Multer.File;
-  }) {
-    try {
-      // Check if email already exist
-      const userEmailExist = await UserRepository.exist({
-        field: 'email',
-        value: String(email),
-      });
-
-      if (userEmailExist) {
-        return {
-          statusCode: 401,
-          message: 'Email already exist',
-        };
-      }
-
-      let mediaUrl: string | undefined = undefined;
-
-      if (image) {
-        const fileName = `${StringHelper.randomString()}${image?.originalname}`;
-        await SazedStorage.put(
-          appConfig().storageUrl.avatar + '/' + fileName,
-          image?.buffer,
-        );
-
-        mediaUrl = fileName;
-
-        console.log('Uploaded avatar to storage:', mediaUrl);
-      } else {
-        console.warn('Avatar upload failed');
-      }
-
-      const user = await UserRepository.createUser({
-        name: name,
-        email: email,
-        phone_number: phone_number,
-        location: location,
-        bio: bio,
-        date_of_birth: date_of_birth,
-        age: DateHelper.calculateAge(date_of_birth),
-        password: password,
-        type: type,
-        avatar: mediaUrl,
-      });
-
-      if (user == null && user.success == false) {
-        return {
-          success: false,
-          message: 'Failed to create account',
-        };
-      }
-
-      // create stripe customer account
-      const stripeCustomer = await StripePayment.createCustomer({
-        user_id: user.data.id,
-        email: email,
-        name: name,
-      });
-
-      if (stripeCustomer) {
-        await this.prisma.user.update({
-          where: {
-            id: user.data.id,
-          },
-          data: {
-            billing_id: stripeCustomer.id,
-          },
-        });
-      }
-
-      // // If registering as a coach, create the coach profile record
-      // if (type === 'coach' && coach_profile) {
-      //   console.log('type is coach or not', type);
-
-      //   try {
-      //     await this.prisma.coachProfile.create({
-      //       data: {
-      //         user_id: user.data.id,
-      //         hourly_rate: coach_profile.hourly_rate ?? undefined,
-      //         hourly_currency: coach_profile.hourly_currency ?? null,
-      //       },
-      //     });
-      //   } catch (err) {
-      //     return {
-      //       success: false,
-      //       message:
-      //         'User created but failed to create coach profile: ' + err.message,
-      //     };
-      //   }
-      //   return {
-      //     success: true,
-      //     message: 'We have sent a verification link to your email',
-      //   };
-      // }
-
-      // Generate verification token
-      // const token = await UcodeRepository.createVerificationToken({
-      //   userId: user.data.id,
-      //   email: email,
-      // });
-
-      // // Send verification email with token
-      // await this.mailService.sendVerificationLink({
-      //   email,
-      //   name: email,
-      //   token: token.token,
-      //   type: type,
-      // });
-
-      return {
-        success: true,
-        message: 'Registered successfully',
       };
     } catch (error) {
       return {
