@@ -11,6 +11,7 @@ import { SubscriptionPlansController } from './subscription-plans/subscription-p
 import { StripeModule } from '../payment/stripe/stripe.module';
 import { BookingListModule } from './booking_management/booking_list/booking_list.module';
 import { ContentModule } from './content-management/content/content.module';
+import { MarketplaceManagementModule } from './marketplace-management/marketplace-management.module';
 
 @Module({
   imports: [
@@ -25,7 +26,8 @@ import { ContentModule } from './content-management/content/content.module';
     StripeModule,
     BookingListModule,
     BookingListModule,
-    ContentModule
+    ContentModule,
+    MarketplaceManagementModule
   ],
   controllers: [SubscriptionPlansController],
 })

@@ -741,6 +741,29 @@ model GoalNote {
   @@map("goal_notes")
 }
 
+model MarketplaceProduct {
+  id             String   @id @default(cuid())
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+  deleted_at     DateTime?
+
+  name           String
+  category    String?
+  price          Decimal  @default(0)
+  stock_quantity Int      @default(0)
+  brand_seller   String?
+  discount       Decimal? @default(0)
+  description    String?
+  is_active      Boolean  @default(true)
+
+  image_name     String?
+  image_mime     String?
+  image_size     Int?
+  image_data     Bytes?
+
+  @@map("marketplace_products")
+}
+
 // this table stores example
 // model Note {
 //   id                String  @id @default(cuid())
