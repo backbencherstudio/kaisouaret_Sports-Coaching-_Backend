@@ -3,10 +3,8 @@ import {
   Post,
   Body,
   UseGuards,
-  Req,
   Get,
   Param,
-  Put,
   Query,
   Patch,
 } from '@nestjs/common';
@@ -52,6 +50,12 @@ export class GoalsController {
     return this.goalsService.getMyGoals(userId);
   }
 
+  @ApiOperation({ summary: 'Get goals assigned to the authenticated coach' })
+  @Get('assigned')
+  async getAssigned(@GetUser('userId') userId: string) {
+    return this.goalsService.getAssignedGoals(userId);
+  }
+
   @ApiOperation({ summary: 'Get a specific goal for the authenticated user' })
   @Get(':id')
   async getGoal(@Param('id') id: string, @GetUser('userId') userId: string) {
@@ -83,16 +87,30 @@ export class GoalsController {
   @ApiOperation({ summary: 'Add a coach note to a specific goal' })
   @Post(':id/coach-note')
   async addCoachNote(
-    @Req() req: any,
+    @GetUser('userId') coachId: string,
     @Param('id') id: string,
     @Body('note') note: string,
   ) {
-    // coachId is the authenticated user (coach)
-    return this.goalsService.addCoachNote(
-      req.user.id /* userId */,
-      req.user.id /* coachId - TODO: adjust if coach editing others */,
-      id,
-      note,
-    );
+    console.log('from controller', coachId, id, note);
+
+    return this.goalsService.addCoachNote(coachId, id, note);
   }
+
+  @ApiOperation({ summary: 'Assign a coach to a goal (owner only)' })
+  @Post(':id/assign-coach')
+  async assignCoach(
+    @GetUser('userId') userId: string,
+    @Param('id') id: string,
+    @Body('coach_id') coach_id: string,
+  ) {
+    return this.goalsService.assignCoach(userId, id, coach_id);
+  }
+
+  @ApiOperation({ summary: 'Unassign coach from a goal (owner only)' })
+  @Post(':id/unassign-coach')
+  async unassignCoach(@GetUser('userId') userId: string, @Param('id') id: string) {
+    return this.goalsService.unassignCoach(userId, id);
+  }
+
+  
 }

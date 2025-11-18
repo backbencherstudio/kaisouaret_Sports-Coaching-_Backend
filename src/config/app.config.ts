@@ -10,13 +10,20 @@ export default () => ({
   fileSystems: {
     public: {},
     s3: {
-      driver: 's3',
+      bucket: process.env.AWS_S3_BUCKET,
       key: process.env.AWS_ACCESS_KEY_ID,
       secret: process.env.AWS_SECRET_ACCESS_KEY,
-      region: process.env.AWS_DEFAULT_REGION,
-      bucket: process.env.AWS_BUCKET,
-      url: process.env.AWS_URL,
-      endpoint: process.env.AWS_ENDPOINT,
+      region: process.env.AWS_REGION,
+      endpoint: process.env.AWS_S3_ENDPOINT,
+      forcePathStyle: process.env.AWS_S3_FORCE_PATH_STYLE === 'true',
+    },
+    minio: {
+      bucket: process.env.MINIO_BUCKET,
+      endpoint: process.env.MINIO_ENDPOINT,
+      accessKey: process.env.MINIO_ACCESS_KEY,
+      secretKey: process.env.MINIO_SECRET_KEY,
+      port: process.env.MINIO_PORT,
+      useSSL: process.env.MINIO_USE_SSL === 'true',
     },
     gcs: {
       driver: 'gcs',
@@ -55,7 +62,7 @@ export default () => ({
   },
 
   auth: {
-   google: {
+    google: {
       app_id: process.env.GOOGLE_APP_ID,
       app_secret: process.env.GOOGLE_APP_SECRET,
       callback: process.env.GOOGLE_CALLBACK_URL,
@@ -81,8 +88,12 @@ export default () => ({
       api: process.env.PAYPAL_API,
     },
     registration: {
-      coach_registration_fee: parseFloat(process.env.COACH_REGISTRATION_FEE ?? '10'),
-      coach_subscription_fee: parseFloat(process.env.COACH_SUBSCRIPTION_FEE ?? '49'),
+      coach_registration_fee: parseFloat(
+        process.env.COACH_REGISTRATION_FEE ?? '10',
+      ),
+      coach_subscription_fee: parseFloat(
+        process.env.COACH_SUBSCRIPTION_FEE ?? '49',
+      ),
     },
   },
 
@@ -92,13 +103,13 @@ export default () => ({
   storageUrl: {
     rootUrl: './public/storage',
     rootUrlPublic: '/public/storage',
-    // storage directory
     package: '/package',
     destination: '/destination',
     blog: '/blog',
     avatar: '/avatar',
+    video: '/video',
+    photo: '/photo',
     websiteInfo: '/website-info',
-    // chat
     attachment: '/attachment',
   },
 

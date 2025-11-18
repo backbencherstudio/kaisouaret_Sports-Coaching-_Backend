@@ -11,7 +11,7 @@ import { UserRepository } from '../../common/repository/user/user.repository';
 import { MailService } from '../../mail/mail.service';
 import { UcodeRepository } from '../../common/repository/ucode/ucode.repository';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { SazedStorage } from '../../common/lib/disk/SazedStorage';
+import { SazedStorage } from '../../common/lib/Disk/SazedStorage';
 import { DateHelper } from '../../common/helper/date.helper';
 import { StripePayment } from '../../common/lib/Payment/stripe/StripePayment';
 import { StringHelper } from '../../common/helper/string.helper';
@@ -149,25 +149,68 @@ export class AuthService {
       }
 
       if (image) {
-        // delete old image from storage
-        const oldImage = await (this.prisma as any).user.findFirst({
-          where: { id: userId },
-          select: { avatar: true },
-        });
-        if (oldImage && oldImage.avatar) {
-          await SazedStorage.delete(
-            appConfig().storageUrl.avatar + oldImage.avatar,
-          );
-        }
-
-        // upload file
         const fileName = `${StringHelper.randomString()}${image.originalname}`;
-        await SazedStorage.put(
-          appConfig().storageUrl.avatar + fileName,
-          image.buffer,
-        );
+        try {
+          // Attempt upload first to avoid deleting old before success
+          // Normalize avatar key (remove leading slashes) to avoid double-slash issues
+          let avatarPath = String(appConfig().storageUrl.avatar || '/avatar/');
+          avatarPath = avatarPath.replace(/^\/+/, '');
+          const key = `${avatarPath}${fileName}`;
 
-        data.avatar = fileName;
+          await SazedStorage.put(key, image.buffer);
+
+          // build avatar URL using SazedStorage.url for driver-agnostic URL
+          const mediaUrl = SazedStorage.url(key);
+
+          // delete old image from storage only after successful upload
+          const oldImage = await this.prisma.user.findFirst({
+            where: { id: userId },
+            select: { avatar: true },
+          });
+
+          if (oldImage?.avatar) {
+            try {
+              // Attempt to derive the storage key for the existing avatar and delete it.
+              const stored = oldImage.avatar as string;
+              // normalized avatarPath used for new keys
+              let avatarPath = String(
+                appConfig().storageUrl.avatar || '/avatar/',
+              );
+              avatarPath = avatarPath.replace(/^\/+/, '');
+
+              const attempts: string[] = [];
+              // 1) if stored looks like a URL, try to extract path after bucket or endpoint
+              if (/https?:\/\//.test(stored)) {
+                try {
+                  const u = new URL(stored);
+                  // build possible key from pathname without leading slash
+                  const p = u.pathname.replace(/^\/+/, '');
+                  attempts.push(p);
+                } catch (err) {
+                  // ignore
+                }
+              }
+              // 2) avatarPath + filename
+              attempts.push(`${avatarPath}${stored}`);
+              // 3) raw stored value (maybe already a key)
+              attempts.push(stored);
+
+              for (const k of attempts) {
+                try {
+                  await SazedStorage.delete(k);
+                } catch (err) {
+                  // continue trying other keys
+                }
+              }
+            } catch (e) {
+              console.warn('Failed to delete old avatar:', e?.message || e);
+            }
+          }
+
+          data.avatar = mediaUrl;
+        } catch (e) {
+          console.warn('Avatar upload failed:', e?.message || e);
+        }
       }
 
       const user = await UserRepository.getUserDetails(userId);
@@ -320,7 +363,7 @@ export class AuthService {
 
       // if user === coach, then setup coach profile as well
       if (response.type === 'coach') {
-        console.log("hit")
+        console.log('hit');
         const checkPaymentStatus = await this.prisma.coachProfile.findFirst({
           where: { user_id: userId },
           select: { registration_fee_paid: true },
@@ -416,6 +459,7 @@ export class AuthService {
     password,
     bio,
     type,
+    image,
   }: {
     name: string;
     email: string;
@@ -426,6 +470,7 @@ export class AuthService {
     bio?: string;
     date_of_birth?: string;
     coach_profile?: any;
+    image?: Express.Multer.File;
   }) {
     try {
       // Check if email already exist
@@ -441,6 +486,22 @@ export class AuthService {
         };
       }
 
+      let mediaUrl: string | undefined = undefined;
+
+      if (image) {
+        const fileName = `${StringHelper.randomString()}${image?.originalname}`;
+        await SazedStorage.put(
+          appConfig().storageUrl.avatar + '/' + fileName,
+          image?.buffer,
+        );
+
+        mediaUrl = fileName;
+
+        console.log('Uploaded avatar to storage:', mediaUrl);
+      } else {
+        console.warn('Avatar upload failed');
+      }
+
       const user = await UserRepository.createUser({
         name: name,
         email: email,
@@ -451,6 +512,7 @@ export class AuthService {
         age: DateHelper.calculateAge(date_of_birth),
         password: password,
         type: type,
+        avatar: mediaUrl,
       });
 
       if (user == null && user.success == false) {
@@ -504,22 +566,22 @@ export class AuthService {
       // }
 
       // Generate verification token
-      const token = await UcodeRepository.createVerificationToken({
-        userId: user.data.id,
-        email: email,
-      });
+      // const token = await UcodeRepository.createVerificationToken({
+      //   userId: user.data.id,
+      //   email: email,
+      // });
 
-      // Send verification email with token
-      await this.mailService.sendVerificationLink({
-        email,
-        name: email,
-        token: token.token,
-        type: type,
-      });
+      // // Send verification email with token
+      // await this.mailService.sendVerificationLink({
+      //   email,
+      //   name: email,
+      //   token: token.token,
+      //   type: type,
+      // });
 
       return {
         success: true,
-        message: 'We have sent a verification link to your email',
+        message: 'Registered successfully',
       };
     } catch (error) {
       return {

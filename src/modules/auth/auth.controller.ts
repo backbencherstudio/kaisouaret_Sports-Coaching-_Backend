@@ -9,6 +9,7 @@ import {
   Req,
   Res,
   UploadedFile,
+  UploadedFiles,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
@@ -53,8 +54,20 @@ export class AuthController {
   }
 
   @ApiOperation({ summary: 'Register a user' })
+  @UseInterceptors(
+    FileInterceptor('image', {
+      storage: memoryStorage(),
+    }),
+  )
   @Post('register')
-  async create(@Body() data: CreateUserDto, @Req() req: Request) {
+  async create(
+    @Body() data: CreateUserDto,
+
+    @UploadedFiles()
+    files: {
+      avatar?: Express.Multer.File[];
+    },
+  ) {
     try {
       const name = data.name;
       const email = data.email;
@@ -64,6 +77,7 @@ export class AuthController {
       const phone_number = data.phone_number;
       const date_of_birth = data.date_of_birth;
       const bio = data.bio;
+      const image = files?.avatar ? files.avatar[0] : null;
 
       if (!name) {
         throw new HttpException('Name not provided', HttpStatus.UNAUTHORIZED);
@@ -79,6 +93,8 @@ export class AuthController {
         );
       }
 
+      console.log('avatar in controller', image);
+
       const response = await this.authService.register({
         name: name,
         email: email,
@@ -88,6 +104,7 @@ export class AuthController {
         password: password,
         bio: bio,
         type: type,
+        image: image,
       });
 
       return response;

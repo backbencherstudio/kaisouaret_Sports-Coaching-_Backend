@@ -1,11 +1,15 @@
-import { Injectable } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { CreateConversationDto } from './dto/create-conversation.dto';
 import { UpdateConversationDto } from './dto/update-conversation.dto';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PrismaClient } from '@prisma/client';
 import appConfig from '../../../config/app.config';
 // Update the import path below to the correct location of SazedStorage
-import { SazedStorage } from '../../../common/lib/disk/SazedStorage';
+import { SazedStorage } from '../../../common/lib/Disk/SazedStorage';
 import { DateHelper } from '../../../common/helper/date.helper';
 import { MessageGateway } from '../message/message.gateway';
 
@@ -16,15 +20,42 @@ export class ConversationService {
     private readonly messageGateway: MessageGateway,
   ) {}
 
-  async create(createConversationDto: CreateConversationDto) {
+  async create(payload: { creator_id: string; participant_id: string }) {
     try {
       const data: any = {};
 
-      if (createConversationDto.creator_id) {
-        data.creator_id = createConversationDto.creator_id;
+      if (payload.creator_id) {
+        data.creator_id = payload.creator_id;
       }
-      if (createConversationDto.participant_id) {
-        data.participant_id = createConversationDto.participant_id;
+      if (payload.participant_id) {
+        data.participant_id = payload.participant_id;
+      }
+
+      // validate users exist and ensure conversations are between a coach and an athlete
+      const creatorUser = await this.prisma.user.findUnique({
+        where: { id: data.creator_id },
+      });
+      if (!creatorUser) {
+        throw new NotFoundException('Creator user not found');
+      }
+      const participantUser = await this.prisma.user.findUnique({
+        where: { id: data.participant_id },
+      });
+      if (!participantUser) {
+        throw new NotFoundException('Participant user not found');
+      }
+
+      const creatorIsCoach = creatorUser.type === 'coach';
+      const participantIsCoach = participantUser.type === 'coach';
+
+      // require conversations to be between a coach and a non-coach (athlete)
+      const validPair =
+        (creatorIsCoach && !participantIsCoach) ||
+        (participantIsCoach && !creatorIsCoach);
+      if (!validPair) {
+        throw new ForbiddenException(
+          'Conversations are limited to coach <-> athlete interactions',
+        );
       }
 
       // check if conversation exists
@@ -260,35 +291,35 @@ export class ConversationService {
     }
   }
 
-  async update(id: string, updateConversationDto: UpdateConversationDto) {
-    try {
-      const data = {};
-      if (updateConversationDto.creator_id) {
-        data['creator_id'] = updateConversationDto.creator_id;
-      }
-      if (updateConversationDto.participant_id) {
-        data['participant_id'] = updateConversationDto.participant_id;
-      }
+  // async update(id: string, updateConversationDto: UpdateConversationDto) {
+  //   try {
+  //     const data = {};
+  //     if (updateConversationDto.creator_id) {
+  //       data['creator_id'] = updateConversationDto.creator_id;
+  //     }
+  //     if (updateConversationDto.participant_id) {
+  //       data['participant_id'] = updateConversationDto.participant_id;
+  //     }
 
-      await this.prisma.conversation.update({
-        where: { id },
-        data: {
-          ...data,
-          updated_at: DateHelper.now(),
-        },
-      });
+  //     await this.prisma.conversation.update({
+  //       where: { id },
+  //       data: {
+  //         ...data,
+  //         updated_at: DateHelper.now(),
+  //       },
+  //     });
 
-      return {
-        success: true,
-        message: 'Conversation updated successfully',
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
-    }
-  }
+  //     return {
+  //       success: true,
+  //       message: 'Conversation updated successfully',
+  //     };
+  //   } catch (error) {
+  //     return {
+  //       success: false,
+  //       message: error.message,
+  //     };
+  //   }
+  // }
 
   async remove(id: string) {
     try {
