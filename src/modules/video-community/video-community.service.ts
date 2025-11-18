@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreatePostDto } from './dto/video-community-create.dto';
-import { SazedStorage } from 'src/common/lib/disk/SazedStorage';
+import { SazedStorage } from 'src/common/lib/Disk/SazedStorage';
 import appConfig from 'src/config/app.config';
 import { StringHelper } from 'src/common/helper/string.helper';
 

@@ -79,9 +79,9 @@ export class MessageService {
         },
       });
 
-      // this.messageGateway.server
-      //   .to(this.messageGateway.clients.get(data.receiver_id))
-      //   .emit('message', { from: data.receiver_id, data: message });
+      this.messageGateway.server
+        .to(this.messageGateway.clients.get(data.receiver_id))
+        .emit('message', { from: data.receiver_id, data: message });
 
       return {
         success: true,
