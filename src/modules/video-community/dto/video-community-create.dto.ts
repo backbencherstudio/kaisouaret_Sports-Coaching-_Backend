@@ -20,4 +20,8 @@ export class CreatePostDto {
   // if true the video is only visible to premium/subscribed athletes
   @IsOptional()
   is_premium?: boolean;
+
+  @IsOptional()
+  @IsString()
+  video_url?: string;
 }

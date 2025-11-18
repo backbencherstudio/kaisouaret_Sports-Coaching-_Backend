@@ -37,11 +37,11 @@ export class VideoCommunityService {
     return !!tx;
   }
 
-  // coach posts a video entry (the actual video file is expected to be uploaded separately and stored under video_key)
+  // coach posts a video entry (the actual video file is expected to be uploaded separately and stored under video_url)
   async communityPost(
     coachId: string,
     dto: CreatePostDto,
-    file: Express.Multer.File,
+    video?: Express.Multer.File,
   ) {
     if (!coachId) throw new BadRequestException('Coach ID is required');
 
@@ -53,29 +53,34 @@ export class VideoCommunityService {
     let mediaUrl: string | undefined = undefined;
 
     // upload file to s3 or minIO
-    if (file) {
-      const filename = `${StringHelper.randomString(10)}_${file.originalname}`;
+    if (video?.buffer) {
+      try {
+        const fileName = `${StringHelper.randomString()}${video.originalname}`;
+        await SazedStorage.put(
+          appConfig().storageUrl.video + '/' + fileName,
+          video.buffer,
+        );
+        console.log('fileName: ', fileName);
 
-      await SazedStorage.put(
-        appConfig().storageUrl.video + '/' + filename,
-        file.buffer,
-      );
-
-      mediaUrl =
-        process.env.AWS_S3_ENDPOINT +
-        '/' +
-        process.env.AWS_S3_BUCKET +
-        appConfig().storageUrl.video +
-        `/${filename}`;
+        // set video url
+        mediaUrl = SazedStorage.url(
+          appConfig().storageUrl.video + '/' + fileName,
+        );
+      } catch (error) {
+        console.error('Failed to upload video:', error);
+        throw new Error(`Failed to upload video: ${error.message}`);
+      }
+    } else if (dto.video_url) {
+      mediaUrl = dto.video_url;
     }
 
-    const video = await this.prisma.video.create({
+    const postData = await this.prisma.video.create({
       data: {
         coach_id: coachId,
         title: dto.title,
         duration: dto.duration || null,
         description: dto.description || null,
-        video_key: mediaUrl || '',
+        video_url: mediaUrl || '',
       },
       select: {
         id: true,
@@ -84,7 +89,7 @@ export class VideoCommunityService {
         duration: true,
         view_count: true,
         description: true,
-        video_key: true,
+        video_url: true,
         created_at: true,
         updated_at: true,
         is_premium: true,
@@ -100,7 +105,7 @@ export class VideoCommunityService {
       },
     });
     return {
-      ...video,
+      ...postData,
       message: 'Video post created successfully',
     };
   }
@@ -158,8 +163,6 @@ export class VideoCommunityService {
 
     return {
       ...video,
-      video_url: SazedStorage.url(video.video_key),
-      thumbnail_url: video.thumbnail ? SazedStorage.url(video.thumbnail) : null,
     };
   }
 }

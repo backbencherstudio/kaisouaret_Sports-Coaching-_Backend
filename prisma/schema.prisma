@@ -758,7 +758,7 @@ model Video {
   coach_id    String
   title       String
   description String?
-  video_key   String
+  video_url   String?
   thumbnail   String?
   duration    Int?
   is_premium  Boolean  @default(true)
