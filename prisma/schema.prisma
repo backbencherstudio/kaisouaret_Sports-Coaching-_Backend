@@ -101,19 +101,52 @@ model User {
   user_badges          UserBadge[]
   user_goals           Goal[]
   goal_notes           GoalNote[]
-  coach_notes          GoalNote[]           @relation("coach_notes")
-  coached_goals        Goal[]               @relation("goal_coach")
-  videos               Video[]
+  coach_notes          GoalNote[] @relation("coach_notes")
+  user_subscriptions   UserSubscription[]
 
   @@map("users")
 }
+model SubscriptionPlan {
+  id          String   @id @default(cuid())
+  created_at  DateTime @default(now())
+  updated_at  DateTime @default(now())
+  deleted_at  DateTime?
+  name        String
+  price       Decimal  
+  currency    String   @default("USD")
+  interval    String   @default("month") 
+  stripe_price_id String @unique
+  features    Json?
+  description String?
+  is_active   Int?     @default(1) @db.SmallInt
+  sort_order  Int?     @default(0)
+  subscriptions UserSubscription[]
 
+  @@map("subscription_plans")
+}
+
+model UserSubscription {
+  id         String   @id @default(cuid())
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+  deleted_at DateTime?
+  user_id    String
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)  
+  plan_id    String
+  plan       SubscriptionPlan @relation(fields: [plan_id], references: [id])
+  stripe_subscription_id String? @unique
+  status     String? 
+  current_period_start DateTime?
+  current_period_end   DateTime?
+  cancel_at_period_end Boolean? @default(false)
+
+  @@map("user_subscriptions")
+}
 model CoachProfile {
   id         String   @id @default(cuid())
   created_at DateTime @default(now())
   updated_at DateTime @default(now())
   status     Int?     @default(1) @db.SmallInt
-
   user_id String @unique
   user    User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
@@ -384,7 +417,6 @@ model Booking {
   updated_at DateTime  @default(now())
   deleted_at DateTime?
   title      String?
-
   coach_id String
   user_id  String
   user     User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
@@ -713,26 +745,27 @@ model GoalNote {
   @@map("goal_notes")
 }
 
-// Video community for coach-uploaded premium content
-model Video {
-  id          String   @id @default(cuid())
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
+model MarketplaceProduct {
+  id             String   @id @default(cuid())
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+  deleted_at     DateTime?
 
-  coach_id    String
-  coach       User     @relation(fields: [coach_id], references: [id], onDelete: Cascade)
+  name           String
+  category    String?
+  price          Decimal  @default(0)
+  stock_quantity Int      @default(0)
+  brand_seller   String?
+  discount       Decimal? @default(0)
+  description    String?
+  is_active      Boolean  @default(true)
 
-  title       String
-  description String?
-  video_key   String   // stored key/path in storage (driver-agnostic)
-  thumbnail   String?
-  duration    Int?     // seconds
-  is_premium  Boolean  @default(true)
+  image_name     String?
+  image_mime     String?
+  image_size     Int?
+  image_data     Bytes?
 
-  view_count  Int?     @default(0)
-  like_count  Int?     @default(0)
-
-  @@map("videos")
+  @@map("marketplace_products")
 }
 
 // this table stores example

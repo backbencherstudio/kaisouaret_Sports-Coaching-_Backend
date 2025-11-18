@@ -93,7 +93,11 @@ async function bootstrap() {
   app.use('/payment/stripe/webhook', express.raw({ type: 'application/json' }));
 
   app.setGlobalPrefix('api', {
-    exclude: [{ path: '/', method: RequestMethod.GET }],
+    exclude: [
+      { path: '/', method: RequestMethod.GET },
+      { path: '/subscription/success', method: RequestMethod.GET },
+      { path: '/subscription/cancel', method: RequestMethod.GET },
+    ],
   });
   app.enableCors();
   app.use(helmet());
@@ -113,6 +117,11 @@ async function bootstrap() {
   app.useStaticAssets(join(__dirname, '..', 'public/storage'), {
     index: false,
     prefix: '/storage',
+  });
+
+  app.useStaticAssets(join(__dirname, '..', 'public/storage'), {
+    index: false,
+    prefix: '/public/storage',
   });
   app.useGlobalPipes(
     new ValidationPipe({
