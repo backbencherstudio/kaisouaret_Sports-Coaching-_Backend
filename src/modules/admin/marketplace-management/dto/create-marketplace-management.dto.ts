@@ -7,4 +7,5 @@ export class CreateMarketplaceManagementDto {
   discount?: number | string;
   description?: string;
   isActive?: boolean | string;
+  image?: string; // Base64 image string or URL
 }
