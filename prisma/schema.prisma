@@ -105,7 +105,7 @@ model User {
   user_subscriptions   UserSubscription[]
 
   // opposite relation for Goal.coach (@relation("goal_coach"))
-  // coached_goals Goal[] @relation("goal_coach")
+  coached_goals Goal[] @relation("goal_coach")
   videos Video[]
 
   @@map("users")
@@ -699,8 +699,8 @@ model Goal {
   progress_percent Int? @default(0)
 
   // optional assigned coach for this goal
-  // coach_id String?
-  // coach    User?   @relation("goal_coach", fields: [coach_id], references: [id], onDelete: SetNull)
+  coach_id String?
+  coach    User?   @relation("goal_coach", fields: [coach_id], references: [id], onDelete: SetNull)
 
   progress    GoalProgress[]
   coach_notes GoalNote[]
