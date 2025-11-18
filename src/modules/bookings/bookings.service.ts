@@ -4,6 +4,7 @@ import {
   NotFoundException,
   ConflictException,
 } from '@nestjs/common';
+import * as crypto from 'crypto';
 import { UpdateBookingDto } from './dto/update-booking.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { StripePayment } from 'src/common/lib/Payment/stripe/StripePayment';
@@ -693,6 +694,74 @@ export class BookingsService {
       return { error: 'Failed to retrieve athlete bookings' };
     }
   }
+
+  // async generateBookingValidationToken(athleteId: string, bookingId: string) {
+  //   try {
+  //     if (!athleteId) {
+  //       return { error: 'Athlete ID is required' };
+  //     }
+
+  //     if (!bookingId) {
+  //       return { error: 'Booking ID is required' };
+  //     }
+
+  //     const booking = await this.prisma.booking.findFirst({
+  //       where: {
+  //         id: bookingId,
+  //         user_id: athleteId,
+  //       },
+  //     });
+  //     if (!booking) return { error: 'Booking not found' };
+
+  //     // Ensure there is a linked payment transaction
+  //     if (!booking.payment_transaction_id) {
+  //       return { error: 'No payment transaction linked to this booking' };
+  //     }
+
+  //     const paymentTx = await this.prisma.paymentTransaction.findUnique({
+  //       where: { id: booking.payment_transaction_id },
+  //     });
+
+  //     if (!paymentTx) {
+  //       return { error: 'Payment transaction not found' };
+  //     }
+
+  //     // Accept successful statuses coming from payment provider / webhook
+  //     // (webhook sets status to 'succeeded' on success)
+  //     const successStatuses = new Set(['succeeded', 'paid', 'completed']);
+
+  //     // If booking already has a non-expired token, return it (single-use until expiry)
+  //     if (booking.validation_token && booking.token_expires_at) {
+  //       const now = new Date();
+  //       const expires = new Date(booking.token_expires_at);
+  //       if (expires > now) {
+  //         return { validation_token: booking.validation_token, expires_at: booking.token_expires_at };
+  //       }
+  //     }
+
+  //     if (!paymentTx.status || !successStatuses.has(String(paymentTx.status).toLowerCase())) {
+  //       return { error: 'Cannot generate token for unpaid or incomplete payment' };
+  //     }
+
+  //     // generate a secure 6-digit numeric token (consistent with webhook behavior)
+  //     const token = crypto.randomInt(100000, 1000000).toString();
+  //     const expiresAt = new Date();
+  //     expiresAt.setHours(expiresAt.getHours() + 24); // valid for 24 hours
+
+  //     const updated = await this.prisma.booking.update({
+  //       where: { id: booking.id },
+  //       data: {
+  //         status: 'CONFIRMED',
+  //         validation_token: token,
+  //         token_expires_at: expiresAt,
+  //       },
+  //     });
+
+  //     return { validation_token: token, expires_at: updated.token_expires_at };
+  //   } catch (error) {
+  //     return { error: 'Failed to generate validation code' };
+  //   }
+  // }
 
   async getAthleteBookingsByDate(athleteId: string, date: string) {
     try {
@@ -1744,6 +1813,10 @@ export class BookingsService {
               id: true,
               primary_specialty: true,
               specialties: true,
+              available_days: true,
+              weekend_days: true,
+              blocked_days: true,
+              blocked_time_slots: true,
               experience_level: true,
               certifications: true,
               hourly_rate: true,

@@ -24,6 +24,8 @@ import { BookingsModule } from './modules/bookings/bookings.module';
 import { BadgesModule } from './modules/badges/badges.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
 import { GoalsModule } from './modules/goals/goals.module';
+import { CoachHomeModule } from './modules/coach-home/coach-home.module';
+import { VideoCommunityModule } from './modules/video-community/video-community.module';
 
 @Module({
   imports: [
@@ -83,6 +85,8 @@ import { GoalsModule } from './modules/goals/goals.module';
     ReviewsModule,
     BadgesModule,
     GoalsModule,
+    CoachHomeModule,
+    VideoCommunityModule,
   ],
   controllers: [AppController],
   providers: [
