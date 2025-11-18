@@ -14,6 +14,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { Role } from '../../../common/guard/role/role.enum';
 import { Roles } from '../../../common/guard/role/roles.decorator';
+import { GetUser } from '../../auth/decorators/get-user.decorator';
 
 @ApiBearerAuth()
 @ApiTags('Conversation')
@@ -23,12 +24,19 @@ export class ConversationController {
   constructor(private readonly conversationService: ConversationService) {}
 
   @ApiOperation({ summary: 'Create conversation' })
-  @Post()
-  async create(@Body() createConversationDto: CreateConversationDto) {
+  @Post('create')
+  async create(
+    @GetUser('userId') athleteId: string,
+    @Body() createConversationDto: CreateConversationDto,
+  ) {
     try {
-      const conversation = await this.conversationService.create(
-        createConversationDto,
-      );
+      // enforce the authenticated user as the creator to prevent spoofing
+      const payload = {
+        creator_id: athleteId,
+        participant_id: createConversationDto.participant_id,
+      };
+
+      const conversation = await this.conversationService.create(payload);
       return conversation;
     } catch (error) {
       return {

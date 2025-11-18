@@ -8,11 +8,8 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { OnModuleInit } from '@nestjs/common';
 import { MessageStatus } from '@prisma/client';
 import * as jwt from 'jsonwebtoken';
-import * as path from 'path';
-import * as fs from 'fs';
 import appConfig from '../../../config/app.config';
 import { ChatRepository } from '../../../common/repository/chat/chat.repository';
 
@@ -20,34 +17,15 @@ import { ChatRepository } from '../../../common/repository/chat/chat.repository'
   cors: {
     origin: '*',
   },
-  maxHttpBufferSize: 1e8, // 100MB
 })
 export class MessageGateway
-  implements
-    OnGatewayInit,
-    OnGatewayConnection,
-    OnGatewayDisconnect,
-    OnModuleInit
+  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
 {
   @WebSocketServer()
   server: Server;
 
-  private recordings = new Map<string, fs.WriteStream>();
-  private chunks = new Map<string, Buffer>();
-  private uploadsDir = path.join(
-    __dirname,
-    '../../../../public/storage/recordings',
-  );
-
-  constructor() {
-    if (!fs.existsSync(this.uploadsDir)) {
-      fs.mkdirSync(this.uploadsDir, { recursive: true });
-    }
-  }
-
-  // Map to store connected clients
-  public clients = new Map<string, string>(); // userId -> socketId
-  private activeUsers = new Map<string, string>(); // username -> socketId
+  // Map to store connected clients: userId -> socketId
+  public clients = new Map<string, string>();
 
   onModuleInit() {}
 
@@ -58,8 +36,7 @@ export class MessageGateway
   // implement jwt token validation
   async handleConnection(client: Socket, ...args: any[]) {
     try {
-      // const token = client.handshake.headers.authorization?.split(' ')[1];
-      const token = client.handshake.auth.token;
+      const token = client.handshake.auth?.token;
       if (!token) {
         client.disconnect();
         console.log('No token provided');
@@ -67,9 +44,7 @@ export class MessageGateway
       }
 
       const decoded: any = jwt.verify(token, appConfig().jwt.secret);
-      // const decoded: any = this.jwtService.verify(token);
-      // const userId = client.handshake.query.userId as string;
-      const userId = decoded.sub;
+      const userId = decoded?.sub;
       if (!userId) {
         client.disconnect();
         console.log('Invalid token');
@@ -77,9 +52,7 @@ export class MessageGateway
       }
 
       this.clients.set(userId, client.id);
-      // console.log(`User ${userId} connected with socket ${client.id}`);
       await ChatRepository.updateUserStatus(userId, 'online');
-      // notify the user that the user is online
       this.server.emit('userStatusChange', {
         user_id: userId,
         status: 'online',
@@ -98,16 +71,7 @@ export class MessageGateway
     )?.[0];
     if (userId) {
       this.clients.delete(userId);
-
-      const username = [...this.activeUsers.entries()].find(
-        ([, id]) => id === client.id,
-      )?.[0];
-      if (username) {
-        this.activeUsers.delete(username);
-      }
-
       await ChatRepository.updateUserStatus(userId, 'offline');
-      // notify the user that the user is offline
       this.server.emit('userStatusChange', {
         user_id: userId,
         status: 'offline',
@@ -120,8 +84,7 @@ export class MessageGateway
   @SubscribeMessage('joinRoom')
   handleRoomJoin(client: Socket, body: { room_id: string }) {
     const roomId = body.room_id;
-
-    client.join(roomId); // join the room using user_id
+    client.join(roomId);
     client.emit('joinedRoom', { room_id: roomId });
   }
 
@@ -131,9 +94,10 @@ export class MessageGateway
     @MessageBody() body: { to: string; data: any },
   ) {
     const recipientSocketId = this.clients.get(body.to);
+    const senderId = [...this.clients.entries()].find(([, socketId]) => socketId === client.id)?.[0];
     if (recipientSocketId) {
       this.server.to(recipientSocketId).emit('message', {
-        from: body.data.sender.id,
+        from: senderId,
         data: body.data,
       });
     }
@@ -145,7 +109,6 @@ export class MessageGateway
     @MessageBody() body: { message_id: string; status: MessageStatus },
   ) {
     await ChatRepository.updateMessageStatus(body.message_id, body.status);
-    // notify the sender that the message has been sent
     this.server.emit('messageStatusUpdated', {
       message_id: body.message_id,
       status: body.status,
@@ -155,9 +118,10 @@ export class MessageGateway
   @SubscribeMessage('typing')
   handleTyping(client: Socket, @MessageBody() body: { to: string; data: any }) {
     const recipientSocketId = this.clients.get(body.to);
+    const senderId = [...this.clients.entries()].find(([, socketId]) => socketId === client.id)?.[0];
     if (recipientSocketId) {
       this.server.to(recipientSocketId).emit('userTyping', {
-        from: client.id,
+        from: senderId,
         data: body.data,
       });
     }
@@ -169,111 +133,13 @@ export class MessageGateway
     @MessageBody() body: { to: string; data: any },
   ) {
     const recipientSocketId = this.clients.get(body.to);
+    const senderId = [...this.clients.entries()].find(([, socketId]) => socketId === client.id)?.[0];
     if (recipientSocketId) {
       this.server.to(recipientSocketId).emit('userStoppedTyping', {
-        from: client.id,
+        from: senderId,
         data: body.data,
       });
     }
   }
-
-  // for calling
-  @SubscribeMessage('join')
-  handleJoin(client: Socket, { username }: { username: string }) {
-    this.activeUsers.set(username, client.id);
-    console.log(`${username} joined`);
-  }
-
-  @SubscribeMessage('call')
-  handleCall(
-    client: Socket,
-    {
-      caller,
-      receiver,
-      offer,
-    }: { caller: string; receiver: string; offer: any },
-  ) {
-    const receiverSocketId = this.activeUsers.get(receiver);
-    if (receiverSocketId) {
-      this.server.to(receiverSocketId).emit('incomingCall', { caller, offer });
-    }
-  }
-
-  @SubscribeMessage('answer')
-  handleAnswer(
-    client: Socket,
-    {
-      caller,
-      receiver,
-      answer,
-    }: { caller: string; receiver: string; answer: any },
-  ) {
-    const callerSocketId = this.activeUsers.get(caller);
-    if (callerSocketId) {
-      this.server.to(callerSocketId).emit('callAccepted', { answer });
-    }
-  }
-
-  @SubscribeMessage('iceCandidate')
-  handleICECandidate(
-    client: Socket,
-    { receiver, candidate }: { receiver: string; candidate: any },
-  ) {
-    const receiverSocketId = this.activeUsers.get(receiver);
-    if (receiverSocketId) {
-      this.server.to(receiverSocketId).emit('iceCandidate', { candidate });
-    }
-  }
-
-  @SubscribeMessage('endCall')
-  handleEndCall(client: Socket, { receiver }: { receiver: string }) {
-    const receiverSocketId = this.activeUsers.get(receiver);
-    if (receiverSocketId) {
-      this.server.to(receiverSocketId).emit('callEnded');
-    }
-  }
-
-  // recording
-  @SubscribeMessage('recordingChunk')
-  handleRecordingChunk(
-    client: Socket,
-    @MessageBody()
-    payload: {
-      recordingId: string;
-      sequence: number;
-      chunk: Buffer | any;
-    },
-  ) {
-    console.log('Received chunk', payload.sequence, payload.chunk.length);
-    const { recordingId, chunk } = payload;
-    const filePath = path.join(this.uploadsDir, `${recordingId}.webm`);
-
-    if (!this.chunks.has(recordingId)) {
-      this.chunks.set(recordingId, Buffer.alloc(0));
-    }
-
-    this.chunks.set(
-      recordingId,
-      Buffer.concat([
-        this.chunks.get(recordingId),
-        Buffer.from(new Uint8Array(chunk)),
-      ]),
-    );
-  }
-
-  @SubscribeMessage('recordingEnded')
-  handleRecordingEnd(
-    client: Socket,
-    @MessageBody() payload: { recordingId: string },
-  ) {
-    const filePath = path.join(this.uploadsDir, `${payload.recordingId}.webm`);
-    const stream = fs.createWriteStream(filePath, { flags: 'a' });
-
-    console.log(`Started writing to file ${filePath}`);
-    const buffer = this.chunks.get(payload.recordingId);
-    if (buffer) {
-      stream.write(buffer);
-      this.chunks.delete(payload.recordingId);
-    }
-  }
 }
+

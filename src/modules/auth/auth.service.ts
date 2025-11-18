@@ -11,7 +11,7 @@ import { UserRepository } from '../../common/repository/user/user.repository';
 import { MailService } from '../../mail/mail.service';
 import { UcodeRepository } from '../../common/repository/ucode/ucode.repository';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { SazedStorage } from '../../common/lib/disk/SazedStorage';
+import { SazedStorage } from '../../common/lib/Disk/SazedStorage';
 import { DateHelper } from '../../common/helper/date.helper';
 import { StripePayment } from '../../common/lib/Payment/stripe/StripePayment';
 import { StringHelper } from '../../common/helper/string.helper';
@@ -485,29 +485,22 @@ export class AuthService {
           message: 'Email already exist',
         };
       }
+
       let mediaUrl: string | undefined = undefined;
 
       if (image) {
-        const filename = `${StringHelper.randomString(10)}_${image.originalname}`;
+        const fileName = `${StringHelper.randomString()}${image?.originalname}`;
+        await SazedStorage.put(
+          appConfig().storageUrl.avatar + '/' + fileName,
+          image?.buffer,
+        );
 
-        console.log('filename', filename);
-        try {
-          // Normalize avatar key (remove leading slashes) to avoid double-slash issues
-          let avatar = String(appConfig().storageUrl.avatar || '/avatar/');
-          avatar = avatar.replace(/^\/+/, '');
-          const key = `${avatar}/${filename}`.replace(/\/+/g, '/');
+        mediaUrl = fileName;
 
-          await SazedStorage.put(key, image.buffer);
-
-          mediaUrl = SazedStorage.url(key);
-
-          console.log('Uploaded avatar to storage:', mediaUrl);
-        } catch (e) {
-          console.warn('Avatar upload failed:', e?.message || e);
-        }
+        console.log('Uploaded avatar to storage:', mediaUrl);
+      } else {
+        console.warn('Avatar upload failed');
       }
-
-      console.log('Avatar URL:', mediaUrl);
 
       const user = await UserRepository.createUser({
         name: name,
