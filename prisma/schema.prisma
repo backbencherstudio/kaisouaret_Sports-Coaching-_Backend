@@ -106,6 +106,7 @@ model User {
 
   // opposite relation for Goal.coach (@relation("goal_coach"))
   // coached_goals Goal[] @relation("goal_coach")
+  videos Video[]
 
   @@map("users")
 }
@@ -750,20 +751,37 @@ model GoalNote {
   @@map("goal_notes")
 }
 
+model Video {
+  id          String   @id @default(cuid())
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+  coach_id    String
+  title       String
+  description String?
+  video_key   String
+  thumbnail   String?
+  duration    Int?
+  is_premium  Boolean  @default(true)
+  view_count  Int      @default(0)
+  like_count  Int      @default(0)
+
+  coach User @relation(fields: [coach_id], references: [id], onDelete: Cascade)
+}
+
 model MarketplaceProduct {
-  id             String   @id @default(cuid())
-  created_at     DateTime @default(now())
-  updated_at     DateTime @updatedAt
+  id             String    @id @default(cuid())
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @updatedAt
   deleted_at     DateTime?
   name           String
   category       String?
-  price          Decimal  @default(0)
-  stock_quantity Int      @default(0)
+  price          Decimal   @default(0)
+  stock_quantity Int       @default(0)
   brand_seller   String?
-  discount       Decimal? @default(0)
+  discount       Decimal?  @default(0)
   description    String?
-  is_active      Boolean  @default(true)
-  image     String?
+  is_active      Boolean   @default(true)
+  image          String?
 
   @@map("marketplace_products")
 }
