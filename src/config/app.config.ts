@@ -103,14 +103,14 @@ export default () => ({
   storageUrl: {
     rootUrl: './public/storage',
     rootUrlPublic: '/public/storage',
-    package: '/package',
-    destination: '/destination',
-    blog: '/blog',
-    avatar: '/avatar',
+    package: 'package',
+    destination: 'destination',
+    blog: 'blog',
+    avatar: 'avatar',
     video: 'video',
-    photo: '/photo',
-    websiteInfo: '/website-info',
-    attachment: '/attachment',
+    photo: 'photo',
+    websiteInfo: 'website-info',
+    attachment: 'attachment',
   },
 
   defaultUser: {
