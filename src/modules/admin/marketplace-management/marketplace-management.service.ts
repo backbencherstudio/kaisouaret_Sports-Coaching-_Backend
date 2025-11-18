@@ -15,6 +15,14 @@ export class MarketplaceManagementService {
     const discount = this.toDecimal(createMarketplaceManagementDto.discount);
     const isActive = this.coerceBoolean(createMarketplaceManagementDto.isActive, true);
 
+    // Convert image to base64 string if provided
+    let imageString: string | undefined;
+    if (image?.buffer) {
+      imageString = `data:${image.mimetype};base64,${image.buffer.toString('base64')}`;
+    } else if (createMarketplaceManagementDto.image) {
+      imageString = createMarketplaceManagementDto.image;
+    }
+
     const product = await this.prisma.marketplaceProduct.create({
       data: {
         name: createMarketplaceManagementDto.productName,
@@ -25,10 +33,7 @@ export class MarketplaceManagementService {
         discount,
         description: createMarketplaceManagementDto.description,
         is_active: isActive ?? true,
-        image_name: image?.originalname,
-        image_mime: image?.mimetype,
-        image_size: image?.size,
-        image_data: image?.buffer,
+        image: imageString,
       },
     });
 
@@ -85,6 +90,14 @@ export class MarketplaceManagementService {
     const stockQuantity = this.coerceInt(updateMarketplaceManagementDto.stockQuantity);
     const isActive = this.coerceBoolean(updateMarketplaceManagementDto.isActive);
 
+    // Convert image to base64 string if provided
+    let imageString: string | undefined;
+    if (image?.buffer) {
+      imageString = `data:${image.mimetype};base64,${image.buffer.toString('base64')}`;
+    } else if (updateMarketplaceManagementDto.image !== undefined) {
+      imageString = updateMarketplaceManagementDto.image;
+    }
+
     const product = await this.prisma.marketplaceProduct.update({
       where: { id },
       data: {
@@ -104,12 +117,7 @@ export class MarketplaceManagementService {
           description: updateMarketplaceManagementDto.description,
         }),
         ...(isActive !== undefined && { is_active: isActive }),
-        ...(image && {
-          image_name: image.originalname,
-          image_mime: image.mimetype,
-          image_size: image.size,
-          image_data: image.buffer,
-        }),
+        ...(imageString !== undefined && { image: imageString }),
       },
     });
 
@@ -168,14 +176,7 @@ export class MarketplaceManagementService {
       isActive: product.is_active,
       createdAt: product.created_at,
       updatedAt: product.updated_at,
-      image: product.image_data
-        ? {
-            filename: product.image_name,
-            mimeType: product.image_mime,
-            size: product.image_size,
-            base64: Buffer.from(product.image_data).toString('base64'),
-          }
-        : null,
+      image: product.image || null,
     };
   }
 
