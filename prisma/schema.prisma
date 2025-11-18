@@ -746,7 +746,6 @@ model MarketplaceProduct {
   created_at     DateTime @default(now())
   updated_at     DateTime @updatedAt
   deleted_at     DateTime?
-
   name           String
   category    String?
   price          Decimal  @default(0)
@@ -755,11 +754,7 @@ model MarketplaceProduct {
   discount       Decimal? @default(0)
   description    String?
   is_active      Boolean  @default(true)
-
-  image_name     String?
-  image_mime     String?
-  image_size     Int?
-  image_data     Bytes?
+  image     String?
 
   @@map("marketplace_products")
 }
