@@ -24,24 +24,26 @@ export class VideoCommunityController {
   constructor(private readonly videoCommunityService: VideoCommunityService) {}
 
   @ApiOperation({
-    summary: 'Coach posts a video (video_key must reference uploaded file)',
+    summary: 'Coach posts a video (video_url must reference uploaded file)',
   })
   @Post('post')
   @UseInterceptors(
-    FileInterceptor('media', {
+    FileInterceptor('video', {
       storage: memoryStorage(),
     }),
   )
   async communityPost(
     @GetUser('userId') coachId: string,
-    @UploadedFile() file: Express.Multer.File,
     @Body() body: CreatePostDto,
+    @UploadedFile() video?: Express.Multer.File,
   ) {
-    if (!coachId && !file) {
+    console.log('video', video);
+
+    if (!coachId && !video) {
       throw new Error('Invalid coachId or file');
     }
 
-    return this.videoCommunityService.communityPost(coachId, body, file);
+    return this.videoCommunityService.communityPost(coachId, body, video);
   }
 
   @ApiOperation({

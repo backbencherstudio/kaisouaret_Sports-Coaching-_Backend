@@ -107,7 +107,7 @@ export default () => ({
     destination: '/destination',
     blog: '/blog',
     avatar: '/avatar',
-    video: '/video',
+    video: 'video',
     photo: '/photo',
     websiteInfo: '/website-info',
     attachment: '/attachment',
