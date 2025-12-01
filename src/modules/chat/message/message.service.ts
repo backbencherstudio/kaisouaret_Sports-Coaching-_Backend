@@ -79,9 +79,14 @@ export class MessageService {
         },
       });
 
-      this.messageGateway.server
-        .to(this.messageGateway.clients.get(data.receiver_id))
-        .emit('message', { from: data.receiver_id, data: message });
+      const recipientSocketId = this.messageGateway.clients.get(
+        data.receiver_id,
+      );
+      if (recipientSocketId) {
+        this.messageGateway.server
+          .to(recipientSocketId)
+          .emit('message', { from: user_id, data: message });
+      }
 
       return {
         success: true,
@@ -230,5 +235,60 @@ export class MessageService {
 
   async updateUserStatus(user_id: string, status: string) {
     return await ChatRepository.updateUserStatus(user_id, status);
+  }
+
+  async sendCustomOffer(coachId: string, customOfferDto: any) {
+    try {
+      if (!coachId) {
+        throw new Error('Coach ID is required');
+      }
+
+      // get the booking and validate
+      const booking = await this.prisma.booking.findUnique({
+        where: { id: customOfferDto.booking_id },
+      });
+
+      if (!booking) {
+        throw new Error('Booking not found');
+      }
+
+      // const createCustomOffer = await this.prisma.booking.update({
+      //   where: { id: customOfferDto.booking_id },
+      //   data: {
+      //     custom_offer: {
+      //       title: customOfferDto.title,
+      //       description: customOfferDto.description,
+      //       price: customOfferDto.price,
+      //       duration_minutes: customOfferDto.duration_minutes,
+            
+      //     },
+      //   },
+      // });
+
+      // Notify the athlete via chat message
+      const message = await this.prisma.message.create({
+        data: {
+          conversation_id: customOfferDto.conversation_id,
+          sender_id: coachId,
+          receiver_id: booking.user_id,
+          message: `Custom offer sent: ${customOfferDto.title} for $${customOfferDto.price}`,
+          status: MessageStatus.SENT,
+        },
+      });
+
+      this.messageGateway.server
+        .to(this.messageGateway.clients.get(booking.user_id))
+        .emit('message', { from: coachId, data: message });
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message,
+      };
+    }
+
+    return {
+      success: true,
+      message: 'Custom offer sent successfully',
+    };
   }
 }

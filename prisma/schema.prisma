@@ -441,6 +441,7 @@ model Booking {
   sessionPackage     SessionsPackage? @relation(fields: [session_package_id], references: [id], onDelete: Cascade)
 
   description             String?
+  number_of_members         Int?      @default(1)
   number_of_sessions      Int?
   days_validity           Int?
   total_completed_session Int?    @default(0)

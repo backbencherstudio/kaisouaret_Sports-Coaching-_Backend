@@ -13,6 +13,8 @@ import { MessageGateway } from './message.gateway';
 import { Request } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
+import { GetUser } from 'src/modules/auth/decorators/get-user.decorator';
+import { CustomOfferDto } from './dto/custom-offer.dto';
 
 @ApiBearerAuth()
 @ApiTags('Message')
@@ -86,5 +88,16 @@ export class MessageController {
         message: error.message,
       };
     }
+  }
+
+  @ApiOperation({
+    summary: 'Custom offer in the chat that will update the current booking',
+  })
+  @Post('custom-offer')
+  async sendCustomOffer(
+    @GetUser('userId') coachId: string,
+    @Body() customOfferDto: CustomOfferDto,
+  ) {
+    return this.messageService.sendCustomOffer(coachId, customOfferDto);
   }
 }
