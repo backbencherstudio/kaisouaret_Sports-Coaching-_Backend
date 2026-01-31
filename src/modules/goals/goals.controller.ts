@@ -14,6 +14,7 @@ import { CreateGoalDto } from './dto/create-goal.dto';
 import { UpdateGoalDto } from './dto/update-goal.dto';
 import { ProgressDto } from './dto/progress.dto';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { AddCoachNoteDto, AssignCoachDto } from './dto/coach-note.dto';
 import { GetUser } from '../auth/decorators/get-user.decorator';
 
 @ApiTags('goals')
@@ -89,11 +90,9 @@ export class GoalsController {
   async addCoachNote(
     @GetUser('userId') coachId: string,
     @Param('id') id: string,
-    @Body('note') note: string,
+    @Body() body: AddCoachNoteDto,
   ) {
-    console.log('from controller', coachId, id, note);
-
-    return this.goalsService.addCoachNote(coachId, id, note);
+    return this.goalsService.addCoachNote(coachId, id, body.note);
   }
 
   @ApiOperation({ summary: 'Assign a coach to a goal (owner only)' })
@@ -101,9 +100,9 @@ export class GoalsController {
   async assignCoach(
     @GetUser('userId') userId: string,
     @Param('id') id: string,
-    @Body('coach_id') coach_id: string,
+    @Body() body: AssignCoachDto,
   ) {
-    return this.goalsService.assignCoach(userId, id, coach_id);
+    return this.goalsService.assignCoach(userId, id, body.coach_id);
   }
 
   @ApiOperation({ summary: 'Unassign coach from a goal (owner only)' })

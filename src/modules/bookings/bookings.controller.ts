@@ -6,6 +6,7 @@ import {
   Patch,
   Param,
   Delete,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { BookingsService } from './bookings.service';
@@ -21,7 +22,7 @@ export class BookingsController {
   constructor(private readonly bookingsService: BookingsService) {}
 
   @ApiOperation({ summary: 'blocked days for a coach' })
-  @Post('coach/:coachId/blocked-days')
+  @Post('coach/blocked-days')
   async setBlockedDays(
     @GetUser('userId') coachId: string,
     @Body('blockedDays') blockedDays: string[],
@@ -42,16 +43,18 @@ export class BookingsController {
   }
 
   @ApiOperation({ summary: 'set blocked time slots for a coach' })
-  @Post('coach/:coachId/blocked-time-slots')
+  @Post('coach/blocked-time-slots')
   async setBlockedTimeSlots(
     @GetUser('userId') coachId: string,
-    @Body('blockedTimeSlots') blockedTimeSlots: string[],
+    @Body('date') date: string,
+    @Body('startTime') startTime: string,
+    @Body('endTime') endTime: string,
   ) {
-    return this.bookingsService.setBlockedTimeSlots(coachId, blockedTimeSlots);
+    return this.bookingsService.setBlockedTimeSlots(coachId, date, startTime, endTime);
   }
 
   @ApiOperation({ summary: 'set weekend days for a coach' })
-  @Post('coach/:coachId/weekend-days')
+  @Post('coach/weekend-days')
   async setWeekendDays(
     @GetUser('userId') coachId: string,
     @Body('weekendDays') weekendDays: string[],
@@ -69,6 +72,12 @@ export class BookingsController {
   @Get('coach/:coachId/available-days')
   async getAvailableDays(@Param('coachId') coachId: string) {
     return this.bookingsService.getAvailableDays(coachId);
+  }
+
+  @ApiOperation({ summary: 'Find coaches by date availability' })
+  @Post('coaches/available-date/:date')
+  async findCoachesByDateAvailability(@Param('date') date: string) {
+    return this.bookingsService.findCoachesByDateAvailability(date);
   }
 
   @ApiOperation({ summary: 'booked a new appointment by athlete' })
@@ -118,24 +127,39 @@ export class BookingsController {
     return this.bookingsService.getNextUpcomingSession(userId);
   }
 
+  @ApiOperation({ summary: 'get session details for logged-in user' })
+  @Get('session/details/:bookingId')
+  async getSessionDetails(
+    @GetUser('userId') userId: string,
+    @Param('bookingId') bookingId: string,
+  ) {
+    return this.bookingsService.getSessionDetails(userId, bookingId);
+  }
+
   @ApiOperation({ summary: 'get completed bookings for logged-in user' })
   @Get('completed')
   async getCompletedBookings(@GetUser('userId') userId: string) {
     return this.bookingsService.getCompletedBookings(userId);
   }
 
-  @ApiOperation({ summary: 'send review to coach' })
-  // Review endpoints were moved to the separate `reviews` module.
   @ApiOperation({ summary: 'get all bookings for especific coach' })
-  @Get('coach/:coachId')
-  async getCoachBookings(@Param('coachId') coachId: string) {
-    return this.bookingsService.getCoachBookings(coachId);
+  @Get('coach/all')
+  async getCoachBookings(
+    @GetUser('userId') coachId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.bookingsService.getCoachBookings(
+      coachId,
+      Number(page) || 1,
+      Number(limit) || 10,
+    );
   }
 
   @ApiOperation({ summary: 'get all bookings for especific coach by date' })
-  @Get('coach/:coachId/date/:date')
+  @Get('coach/all/date/:date')
   async getCoachBookingsByDate(
-    @Param('coachId') coachId: string,
+    @GetUser('userId') coachId: string,
     @Param('date') date: string,
   ) {
     return this.bookingsService.getCoachBookingsByDate(coachId, date);
@@ -176,7 +200,6 @@ export class BookingsController {
     return this.bookingsService.getBookingById(athleteId, bookingId);
   }
 
-
   // @ApiOperation({ summary: 'generate a validation token for a booking by athlete' })
   // @Post(':bookingId/token')
   // async generateBookingValidationToken(
@@ -208,6 +231,20 @@ export class BookingsController {
       coachId,
       bookingId,
       updateBookingDto,
+    );
+  }
+
+  @ApiOperation({ summary: 'send custom offer for group/multiple members booking' })
+  @Post(':bookingId/custom-offer')
+  async sendCustomOffer(
+    @GetUser('userId') coachId: string,
+    @Param('bookingId') bookingId: string,
+    @Body() customOfferDto: any,
+  ) {
+    return this.bookingsService.sendCustomOffer(
+      coachId,
+      bookingId,
+      customOfferDto,
     );
   }
 
@@ -265,7 +302,7 @@ export class BookingsController {
   }
 
   @ApiOperation({ summary: 'search coaches by speciality or others' })
-  @Get('search/coaches')
+  @Post('search/coaches')
   async getSearchCoaches(
     @GetUser('userId') athleteId: string,
     @Body('searchText') searchText: string,

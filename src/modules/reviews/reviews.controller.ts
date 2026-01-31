@@ -27,7 +27,13 @@ export class ReviewsController {
     @Param('bookingId') bookingId: string,
     @Body() reviewDto: any,
   ) {
-    return this.reviewsService.createReview(athleteId, bookingId, reviewDto);
+    const review = await this.reviewsService.createReview(athleteId, bookingId, reviewDto);
+    return {
+      success: true,
+      statusCode: 201,
+      message: 'Review created successfully',
+      data: review,
+    };
   }
 
   @ApiOperation({ summary: 'Get reviews for a coach profile (paginated, public)' })

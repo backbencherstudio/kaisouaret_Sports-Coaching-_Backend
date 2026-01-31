@@ -5,19 +5,24 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 
-type ClaimResult = { awarded: boolean; userBadge?: any; reason?: string };
-
 @Injectable()
 export class BadgesService {
   constructor(private readonly prisma: PrismaService) {}
 
   // Return all badges. If userId provided, include earned info and earned_at.
   async getAllBadges(userId?: string) {
+    
     const badges = await this.prisma.badge.findMany({
       orderBy: { created_at: 'asc' },
     });
 
-    if (!userId) return badges;
+    if (!userId) {
+      return {
+        success: true,
+        message: 'All badges retrieved successfully',
+        data: badges,
+      };
+    }
 
     const userBadges = await this.prisma.userBadge.findMany({
       where: { user_id: userId },
@@ -25,15 +30,23 @@ export class BadgesService {
     const map: Record<string, any> = {};
     for (const ub of userBadges) map[ub.badge_id] = ub;
 
-    return badges.map((b) => ({
+    const badgesWithProgress = badges.map((b) => ({
       ...b,
       earned: !!map[b.id],
       earned_at: map[b.id]?.earned_at ?? null,
     }));
+
+    return {
+      success: true,
+      message: 'Badges with user progress retrieved successfully',
+      data: badgesWithProgress,
+    };
   }
 
   // Return badges earned by a user and summary progress
   async getMyBadges(userId: string) {
+    if (!userId) throw new BadRequestException('User ID is required');
+
     const [allBadges, userBadges] = await Promise.all([
       this.prisma.badge.findMany({ orderBy: { created_at: 'asc' } }),
       this.prisma.userBadge.findMany({
@@ -50,19 +63,26 @@ export class BadgesService {
     });
 
     return {
-      total: allBadges.length,
-      earned_count: userBadges.length,
-      completed_bookings: completedBookings,
-      badges: allBadges.map((b) => ({
-        ...b,
-        earned: !!earnedMap[b.id],
-        earned_at: earnedMap[b.id]?.earned_at ?? null,
-      })),
+      success: true,
+      message: 'User badges retrieved successfully',
+      data: {
+        total: allBadges.length,
+        earned_count: userBadges.length,
+        completed_bookings: completedBookings,
+        badges: allBadges.map((b) => ({
+          ...b,
+          earned: !!earnedMap[b.id],
+          earned_at: earnedMap[b.id]?.earned_at ?? null,
+        })),
+      },
     };
   }
 
   // Attempt to claim a badge for the user by badge key. Returns whether awarded.
-  async claimBadge(userId: string, badgeKey: string): Promise<ClaimResult> {
+  async claimBadge(userId: string, badgeKey: string) {
+    if (!userId) throw new BadRequestException('User ID is required');
+    if (!badgeKey) throw new BadRequestException('Badge key is required');
+
     const badge = await this.prisma.badge.findUnique({
       where: { key: badgeKey },
     });
@@ -71,7 +91,7 @@ export class BadgesService {
     const already = await this.prisma.userBadge.findFirst({
       where: { user_id: userId, badge_id: badge.id },
     });
-    if (already) return { awarded: false, reason: 'Already awarded' };
+    if (already) throw new BadRequestException('Badge already awarded to this user');
 
     // Basic eligibility rules (approximate):
     const completedCount = await this.prisma.booking.count({
@@ -129,16 +149,26 @@ export class BadgesService {
         throw new BadRequestException('Unknown badge key');
     }
 
-    if (!eligible) return { awarded: false, reason: 'Not eligible yet' };
+    if (!eligible) throw new BadRequestException('You are not eligible for this badge yet');
 
     const userBadge = await this.prisma.userBadge.create({
       data: { user_id: userId, badge_id: badge.id },
     });
-    return { awarded: true, userBadge };
+
+    return {
+      success: true,
+      message: 'Badge claimed successfully',
+      data: {
+        awarded: true,
+        userBadge,
+      },
+    };
   }
 
   // Return the next badge the user can aim for along with progress info
   async getNextBadge(userId: string) {
+    if (!userId) throw new BadRequestException('User ID is required');
+
     // Fetch badges ordered by created_at (assumed progression)
     const badges = await this.prisma.badge.findMany({ orderBy: { created_at: 'asc' } });
     const userBadges = await this.prisma.userBadge.findMany({ where: { user_id: userId } , include: { badge: true } });
@@ -161,7 +191,14 @@ export class BadgesService {
     // find first unearned badge as next target
     const next = badges.find((b) => !earnedKeys.has(b.key));
     if (!next) {
-      return { message: 'All badges earned', next: null };
+      return {
+        success: true,
+        message: 'All badges earned',
+        data: {
+          next: null,
+          all_earned: true,
+        },
+      };
     }
 
     // determine target and current progress per badge key
@@ -216,14 +253,18 @@ export class BadgesService {
     const percent = target > 0 ? Math.floor((current / target) * 100) : 0;
 
     return {
-      next: {
-        id: next.id,
-        key: next.key,
-        title: next.title,
-        description: next.description,
-        points: next.points,
+      success: true,
+      message: 'Next badge retrieved successfully',
+      data: {
+        next: {
+          id: next.id,
+          key: next.key,
+          title: next.title,
+          description: next.description,
+          points: next.points,
+        },
+        progress: { current, target, percent },
       },
-      progress: { current, target, percent },
     };
   }
 }
