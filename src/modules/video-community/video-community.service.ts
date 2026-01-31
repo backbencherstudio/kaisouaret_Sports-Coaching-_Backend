@@ -85,33 +85,26 @@ export class VideoCommunityService {
       select: {
         id: true,
         title: true,
-        thumbnail: true,
-        duration: true,
-        view_count: true,
         description: true,
         video_url: true,
-        created_at: true,
-        updated_at: true,
+        thumbnail: true,
+        duration: true,
         is_premium: true,
-        coach: {
-          select: {
-            id: true,
-            name: true,
-            avatar: true,
-            bio: true,
-            coach_profile: true,
-          },
-        },
+        created_at: true,
       },
     });
+    
     return {
-      ...postData,
+      success: true,
       message: 'Video post created successfully',
+      data: postData,
     };
   }
 
   // list videos visible to the requesting user
   async listVideos(requestingUserId: string, opts: ListOptions = {}) {
+    if (!requestingUserId) throw new BadRequestException('User ID is required');
+
     const page = opts.page && opts.page > 0 ? opts.page : 1;
     const perPage = opts.perPage && opts.perPage > 0 ? opts.perPage : 10;
 
@@ -123,25 +116,77 @@ export class VideoCommunityService {
       where.is_premium = false;
     }
 
-    const videos = await this.prisma.video.findMany({
-      where,
-      orderBy: { created_at: 'desc' },
-      skip: (page - 1) * perPage,
-      take: perPage,
-      include: { coach: { select: { id: true, name: true, avatar: true } } },
-    });
+    const [videos, total] = await Promise.all([
+      this.prisma.video.findMany({
+        where,
+        orderBy: { created_at: 'desc' },
+        skip: (page - 1) * perPage,
+        take: perPage,
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          video_url: true,
+          thumbnail: true,
+          duration: true,
+          view_count: true,
+          is_premium: true,
+          created_at: true,
+          coach: {
+            select: {
+              id: true,
+              name: true,
+              avatar: true,
+            },
+          },
+        },
+      }),
+      this.prisma.video.count({ where }),
+    ]);
 
-    // decorate with public urls
-    const decorated = videos.map((v) => ({
-      ...v,
-    }));
-
-    return decorated;
+    return {
+      success: true,
+      message: 'Videos retrieved successfully',
+      data: {
+        videos,
+        pagination: {
+          page,
+          perPage,
+          total,
+          totalPages: Math.ceil(total / perPage),
+        },
+        isPremium,
+      },
+    };
   }
 
   async getVideo(requestingUserId: string, videoId: string) {
+    if (!requestingUserId) throw new BadRequestException('User ID is required');
+    if (!videoId) throw new BadRequestException('Video ID is required');
+
     const video = await this.prisma.video.findUnique({
       where: { id: videoId },
+      include: {
+        coach: {
+          select: {
+            id: true,
+            name: true,
+            avatar: true,
+            bio: true,
+            coach_profile: {
+              select: {
+                id: true,
+                primary_specialty: true,
+                specialties: true,
+                experience_level: true,
+                is_verified: true,
+                avg_rating: true,
+                rating_count: true,
+              },
+            },
+          },
+        },
+      },
     });
     if (!video) throw new NotFoundException('Video not found');
 
@@ -162,7 +207,9 @@ export class VideoCommunityService {
     }
 
     return {
-      ...video,
+      success: true,
+      message: 'Video details retrieved successfully',
+      data: video,
     };
   }
 }

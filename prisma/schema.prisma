@@ -156,13 +156,15 @@ model CoachProfile {
   user_id    String   @unique
   user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
+  // language skills
+  languages                String[]
+
   primary_specialty        String?
   specialties              String[]
   experience_level         String?
   available_days           String[]
   weekend_days             String[]
   blocked_days             String[]
-  blocked_time_slots       String[]
   certifications           String[]
   hourly_rate              Decimal?
   hourly_currency          String?
@@ -185,9 +187,14 @@ model CoachProfile {
   rating_count        Int?     @default(0)
   rgpd_laws_agreement Boolean  @default(false)
 
+  // location coordinates for session map
+  latitude  Decimal?
+  longitude Decimal?
+
   bookings        Booking[]
   sessionsPackage SessionsPackage[]
   coach_reviews   CoachReview[]
+  blocked_time_slots BlockedTimeSlot[]
 
   @@map("coach_profiles")
 }
@@ -241,6 +248,21 @@ model CoachReview {
   rating      Int?
 
   @@map("coach_reviews")
+}
+
+model BlockedTimeSlot {
+  id         String   @id @default(cuid())
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now())
+
+  coach_profile_id String
+  coach_profile    CoachProfile @relation(fields: [coach_profile_id], references: [id], onDelete: Cascade)
+
+  date       DateTime @db.Date
+  start_time String
+  end_time   String
+
+  @@map("blocked_time_slots")
 }
 
 model Ucode {
@@ -430,11 +452,12 @@ model Booking {
   coach_profile_id String
   coach_profile    CoachProfile @relation(fields: [coach_profile_id], references: [id], onDelete: Cascade)
 
-  appointment_date DateTime
-  session_time     DateTime?
-  duration_minutes Int?      @default(60)
-  session_price    Decimal?  @default(55)
-  location         String?   @default("offline")
+  appointment_date     DateTime
+  session_time         DateTime?
+  session_time_display String?
+  duration_minutes     Int?      @default(60)
+  session_price        Decimal?  @default(55)
+  location             String?   @default("offline")
 
   // optional session-package relation when a booking is created from a package
   session_package_id String?
@@ -463,6 +486,10 @@ model Booking {
   feedback String?
 
   google_map_link String?
+
+  // session location coordinates for map
+  latitude  Decimal?
+  longitude Decimal?
 
   @@map("bookings")
 }
@@ -720,14 +747,19 @@ model GoalProgress {
   // date this progress was recorded for (calendar date)
   recorded_at DateTime @default(now())
 
-  // optional structured fields shown in the UI
-  previous_weight   Float?
-  current_weight    Float?
-  training_duration Int? // minutes
-  calories_burned   Int?
-  calories_gained   Int?
-  sets_per_session  Int?
-
+  // Generic progress metrics applicable to any goal type
+  // (weight loss, muscle gain, endurance, flexibility, skill development, etc.)
+  previous_value Float? // Previous measurement value
+  current_value  Float? // Current measurement value
+  
+  session_duration_minutes Int? // Duration of training/practice session in minutes
+  
+  // Flexible performance metrics - use based on goal type
+  // Examples: calories, distance, repetitions, sets, speed, accuracy, etc.
+  performance_metric_1 Float? // e.g., calories burned, distance covered, reps completed
+  performance_metric_2 Float? // e.g., calories consumed, sets completed, average speed
+  performance_metric_3 Float? // e.g., heart rate, weight lifted, accuracy percentage
+  
   notes String?
 
   @@map("goal_progress")
