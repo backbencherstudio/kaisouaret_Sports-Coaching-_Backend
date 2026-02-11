@@ -16,25 +16,30 @@ type ListOptions = { page?: number; perPage?: number };
 export class VideoCommunityService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private async hasActiveSubscription(userId: string): Promise<boolean> {
+  private async hasActiveAthleteSubscription(userId: string): Promise<boolean> {
     if (!userId) return false;
-    const now = new Date();
-    const windowStart = new Date(now);
-    windowStart.setDate(now.getDate() - 30); // consider subscriptions in last 30 days
 
-    const tx = await this.prisma.paymentTransaction.findFirst({
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { type: true },
+    });
+
+    if (!user) return false;
+    if (user.type === 'coach') return true;
+
+    const now = new Date();
+    const activeSubscription = await this.prisma.userSubscription.findFirst({
       where: {
         user_id: userId,
-        // common subscription tx types used in this app
-        OR: [
-          { type: 'subscription' },
-          { type: 'registration_and_subscription' },
-        ],
-        status: { in: ['succeeded', 'paid', 'completed'] },
-        created_at: { gte: windowStart },
+        status: 'active',
+        deleted_at: null,
+        current_period_end: { gte: now },
+        plan: { kind: 'ATHLETE' },
       },
+      select: { id: true },
     });
-    return !!tx;
+
+    return !!activeSubscription;
   }
 
   // coach posts a video entry (the actual video file is expected to be uploaded separately and stored under video_url)
@@ -108,7 +113,7 @@ export class VideoCommunityService {
     const page = opts.page && opts.page > 0 ? opts.page : 1;
     const perPage = opts.perPage && opts.perPage > 0 ? opts.perPage : 10;
 
-    const isPremium = await this.hasActiveSubscription(requestingUserId);
+    const isPremium = await this.hasActiveAthleteSubscription(requestingUserId);
 
     const where: any = {};
     if (!isPremium) {
@@ -191,9 +196,9 @@ export class VideoCommunityService {
     if (!video) throw new NotFoundException('Video not found');
 
     if (video.is_premium) {
-      const ok = await this.hasActiveSubscription(requestingUserId);
+      const ok = await this.hasActiveAthleteSubscription(requestingUserId);
       if (!ok)
-        throw new ForbiddenException('This video is for premium members only');
+        throw new ForbiddenException('This video is for subscribed athletes only');
     }
 
     // increment view count (fire-and-forget)

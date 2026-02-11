@@ -86,10 +86,34 @@ export class AuthService {
         };
       }
 
+      const now = new Date();
+      const activeSubscription = await this.prisma.userSubscription.findFirst({
+        where: {
+          user_id: userId,
+          status: 'active',
+          deleted_at: null,
+          current_period_end: { gte: now },
+        },
+        include: {
+          plan: true,
+        },
+      });
+
+      const subscriptionInfo = {
+        is_active: !!activeSubscription,
+        kind: activeSubscription?.plan?.kind || null,
+        plan_id: activeSubscription?.plan_id || null,
+        current_period_end: activeSubscription?.current_period_end || null,
+        status: activeSubscription?.status || null,
+      };
+
       if (user) {
         return {
           success: true,
-          data: user,
+          data: {
+            ...user,
+            subscription: subscriptionInfo,
+          },
         };
       } else {
         return {
@@ -1111,94 +1135,6 @@ export class AuthService {
     }
   }
 
-  async createCoachRegistrationPayment(
-    user_id: string,
-    amount = 49,
-    currency = 'usd',
-  ) {
-    try {
-      const user = await UserRepository.getUserDetails(user_id);
-      if (!user) return { success: false, message: 'User not found' };
-      // Determine whether the registration fee has already been paid
-      const coachProfile = await (this.prisma as any).coachProfile.findFirst({
-        where: { user_id: user.id },
-      });
-
-      const registrationFee =
-        appConfig().payment.registration.coach_registration_fee ?? 10;
-      const subscriptionFee =
-        appConfig().payment.registration.coach_subscription_fee ?? 49;
-
-      let totalAmount = amount; // default if caller overrides
-      let txType = 'subscription';
-      let metadataType = 'coach_subscription';
-
-      const bodyAmountOrDefault = (bodyAmt: any, fallback: number) => {
-        if (typeof bodyAmt === 'number' && bodyAmt > 0) return bodyAmt;
-        return fallback;
-      };
-
-      if (!coachProfile || !coachProfile.registration_fee_paid) {
-        // first-time payment: registration + first-month subscription
-        totalAmount = bodyAmountOrDefault(
-          amount,
-          registrationFee + subscriptionFee,
-        );
-        txType = 'registration_and_subscription';
-        metadataType = 'coach_registration_and_subscription';
-      } else {
-        // subsequent payments: subscription only
-        totalAmount = bodyAmountOrDefault(amount, subscriptionFee);
-        txType = 'subscription';
-        metadataType = 'coach_subscription';
-      }
-
-      // ensure stripe customer exists
-      if (!user.billing_id) {
-        const stripeCustomer = await StripePayment.createCustomer({
-          user_id: user.id,
-          email: user.email,
-          name: user.name || `${user.first_name || ''} ${user.last_name || ''}`,
-        });
-        if (stripeCustomer) {
-          await (this.prisma as any).user.update({
-            where: { id: user.id },
-            data: { billing_id: stripeCustomer.id },
-          });
-          user.billing_id = stripeCustomer.id;
-        }
-      }
-
-      // create payment intent for calculated amount
-      const paymentIntent = await StripePayment.createPaymentIntent({
-        amount: totalAmount,
-        currency: currency,
-        customer_id: user.billing_id,
-        metadata: { user_id: user.id, type: metadataType },
-      });
-
-      // store single transaction representing this checkout
-      await (this.prisma as any).paymentTransaction.create({
-        data: {
-          user_id: user.id,
-          amount: totalAmount,
-          currency: currency,
-          provider: 'stripe',
-          reference_number: paymentIntent.id,
-          status: 'pending',
-          type: txType,
-        },
-      });
-
-      return {
-        success: true,
-        client_secret: paymentIntent.client_secret,
-        payment_intent_id: paymentIntent.id,
-      };
-    } catch (error) {
-      return { success: false, message: error.message };
-    }
-  }
 
   async verify2FA(user_id: string, token: string) {
     try {

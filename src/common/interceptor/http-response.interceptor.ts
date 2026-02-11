@@ -182,6 +182,11 @@ export class HttpResponseInterceptor<T>
       return data;
     }
 
+    // Preserve arrays as-is (including empty arrays)
+    if (Array.isArray(data)) {
+      return data;
+    }
+
     // If data already has a 'data' property, use it
     if ('data' in data && data.data !== undefined) {
       return data.data;

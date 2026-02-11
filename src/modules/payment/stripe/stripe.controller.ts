@@ -17,15 +17,44 @@ export class StripeController {
     @Req() req: Request,
   ) {
     try {
+      const addInterval = (start: Date, interval: string, count = 1) => {
+        const safeCount = Number(count || 1);
+        const result = new Date(start.valueOf());
+        if (interval === 'year') {
+          result.setFullYear(result.getFullYear() + safeCount);
+        } else if (interval === 'month') {
+          result.setMonth(result.getMonth() + safeCount);
+        } else if (interval === 'day') {
+          result.setDate(result.getDate() + safeCount);
+        }
+        return result;
+      };
+
       const payload = req.rawBody.toString();
       const event = await this.stripeService.handleWebhook(payload, signature);
+
+      console.log('[StripeWebhook] event.type:', event.type);
 
       // Handle events
       switch (event.type) {
         //====================================
         case 'checkout.session.completed':
           const session = event.data.object as stripe.Checkout.Session;
+          console.log('[StripeWebhook] checkout.session.completed', {
+            session_id: session.id,
+            mode: session.mode,
+            subscription: session.subscription,
+            metadata: session.metadata,
+          });
           if (session.mode === 'subscription') {
+            const planId = session.metadata?.plan_id;
+            const plan = planId
+              ? await this.prisma.subscriptionPlan.findUnique({
+                  where: { id: planId },
+                  select: { kind: true },
+                })
+              : null;
+
             const subscription = await StripePayment.getSubscription(
               session.subscription as string,
             );
@@ -37,6 +66,31 @@ export class StripeController {
               ? new Date(sub.current_period_end * 1000)
               : new Date();
 
+            let normalizedPeriodEnd = periodEnd;
+            if (normalizedPeriodEnd <= periodStart) {
+              if (planId) {
+                const planInterval = await this.prisma.subscriptionPlan.findUnique({
+                  where: { id: planId },
+                  select: { interval: true },
+                });
+                if (planInterval?.interval) {
+                  normalizedPeriodEnd = addInterval(
+                    periodStart,
+                    planInterval.interval,
+                    1,
+                  );
+                }
+              }
+            }
+
+            console.log('[StripeWebhook] subscription.period', {
+              subscription_id: subscription.id,
+              status: subscription.status,
+              current_period_start: periodStart,
+              current_period_end: periodEnd,
+              cancel_at_period_end: subscription.cancel_at_period_end,
+            });
+
             await this.prisma.userSubscription.create({
               data: {
                 user_id: session.metadata?.user_id || '',
@@ -44,57 +98,102 @@ export class StripeController {
                 stripe_subscription_id: subscription.id,
                 status: subscription.status,
                 current_period_start: periodStart,
-                current_period_end: periodEnd,
+                current_period_end: normalizedPeriodEnd,
                 cancel_at_period_end: subscription.cancel_at_period_end || false,
               },
             });
-            if (session.metadata?.user_id) {
+            console.log('[StripeWebhook] userSubscription created', {
+              user_id: session.metadata?.user_id,
+              plan_id: session.metadata?.plan_id,
+              stripe_subscription_id: subscription.id,
+              current_period_end: normalizedPeriodEnd,
+            });
+            if (session.metadata?.user_id && plan?.kind === 'COACH') {
               await this.prisma.coachProfile.updateMany({
                 where: { user_id: session.metadata.user_id },
                 data: {
                   subscription_active: 1,
                   subscription_started_at: periodStart,
-                  subscription_expires_at: periodEnd,
+                  subscription_expires_at: normalizedPeriodEnd,
                   subscription_provider: 'stripe',
                   subscription_reference: subscription.id,
                 },
               });
+
+              console.log('[StripeWebhook] coachProfile updated (subscription active)', {
+                user_id: session.metadata.user_id,
+                subscription_reference: subscription.id,
+                subscription_expires_at: normalizedPeriodEnd,
+              });
+
+              if (session.metadata?.registration_fee === '1') {
+                await this.prisma.coachProfile.updateMany({
+                  where: { user_id: session.metadata.user_id },
+                  data: {
+                    registration_fee_paid: 1,
+                    registration_fee_paid_at: new Date(),
+                  },
+                });
+                console.log('[StripeWebhook] coachProfile updated (registration fee paid)', {
+                  user_id: session.metadata.user_id,
+                });
+              }
             }
           }
           break;
 
         case 'customer.subscription.updated':
           const updatedSubscription = event.data.object as any;
+          console.log('[StripeWebhook] customer.subscription.updated', {
+            subscription_id: updatedSubscription.id,
+            status: updatedSubscription.status,
+            cancel_at_period_end: updatedSubscription.cancel_at_period_end,
+          });
           const updatedPeriodStart = updatedSubscription.current_period_start 
             ? new Date(updatedSubscription.current_period_start * 1000)
             : new Date();
           const updatedPeriodEnd = updatedSubscription.current_period_end 
             ? new Date(updatedSubscription.current_period_end * 1000)
             : new Date();
+          let normalizedUpdatedEnd = updatedPeriodEnd;
+          if (normalizedUpdatedEnd <= updatedPeriodStart) {
+            const recurring = updatedSubscription.items?.data?.[0]?.price?.recurring;
+            const interval = recurring?.interval;
+            const intervalCount = Number(recurring?.interval_count || 1);
+            if (interval) {
+              normalizedUpdatedEnd = addInterval(updatedPeriodStart, interval, intervalCount);
+            }
+          }
 
           await this.prisma.userSubscription.updateMany({
             where: { stripe_subscription_id: updatedSubscription.id },
             data: {
               status: updatedSubscription.status,
               current_period_start: updatedPeriodStart,
-              current_period_end: updatedPeriodEnd,
+              current_period_end: normalizedUpdatedEnd,
               cancel_at_period_end: updatedSubscription.cancel_at_period_end || false,
             },
           });
           const userSub = await this.prisma.userSubscription.findFirst({
             where: { stripe_subscription_id: updatedSubscription.id },
           });
+          console.log('[StripeWebhook] userSubscription found', {
+            exists: !!userSub,
+            user_id: userSub?.user_id,
+          });
 
           if (userSub && updatedSubscription.status === 'active') {
-            const expiresAt = updatedSubscription.current_period_end 
-              ? new Date(updatedSubscription.current_period_end * 1000)
-              : new Date();
+            const expiresAt = normalizedUpdatedEnd;
             await this.prisma.coachProfile.updateMany({
               where: { user_id: userSub.user_id },
               data: {
                 subscription_active: 1,
                 subscription_expires_at: expiresAt,
               },
+            });
+            console.log('[StripeWebhook] coachProfile updated (subscription active)', {
+              user_id: userSub.user_id,
+              subscription_expires_at: expiresAt,
             });
           } else if (userSub && ['canceled', 'unpaid', 'past_due'].includes(updatedSubscription.status)) {
             await this.prisma.coachProfile.updateMany({
@@ -103,11 +202,17 @@ export class StripeController {
                 subscription_active: 0,
               },
             });
+            console.log('[StripeWebhook] coachProfile updated (subscription inactive)', {
+              user_id: userSub.user_id,
+            });
           }
           break;
 
         case 'customer.subscription.deleted':
           const deletedSubscription = event.data.object as stripe.Subscription;
+          console.log('[StripeWebhook] customer.subscription.deleted', {
+            subscription_id: deletedSubscription.id,
+          });
           await this.prisma.userSubscription.updateMany({
             where: { stripe_subscription_id: deletedSubscription.id },
             data: {
@@ -118,14 +223,18 @@ export class StripeController {
 
           const deletedUserSub = await this.prisma.userSubscription.findFirst({
             where: { stripe_subscription_id: deletedSubscription.id },
+            include: { plan: true },
           });
 
-          if (deletedUserSub) {
+          if (deletedUserSub && deletedUserSub.plan?.kind === 'COACH') {
             await this.prisma.coachProfile.updateMany({
               where: { user_id: deletedUserSub.user_id },
               data: {
                 subscription_active: 0,
               },
+            });
+            console.log('[StripeWebhook] coachProfile updated (subscription deleted)', {
+              user_id: deletedUserSub.user_id,
             });
           }
           break;
@@ -148,6 +257,44 @@ export class StripeController {
         case 'payment_intent.created':
           break;
 
+        case 'payment_intent.amount_capturable_updated':
+          const capturableIntent = event.data.object as stripe.PaymentIntent;
+          try {
+            const tx = await this.prisma.paymentTransaction.findFirst({
+              where: { reference_number: capturableIntent.id },
+            });
+            if (tx?.type === 'booking') {
+              const booking = await this.prisma.booking.findFirst({
+                where: { payment_transaction_id: tx.id },
+              });
+              if (booking) {
+                const token = crypto.randomInt(100000, 1000000).toString();
+                const expires = new Date();
+                expires.setMonth(expires.getMonth() + 1);
+
+                await this.prisma.booking.update({
+                  where: { id: booking.id },
+                  data: {
+                    status: 'CONFIRMED',
+                    validation_token: token,
+                    token_expires_at: expires,
+                  },
+                });
+              }
+
+              await this.prisma.paymentTransaction.update({
+                where: { id: tx.id },
+                data: {
+                  status: 'authorized',
+                  raw_status: capturableIntent.status,
+                },
+              });
+            }
+          } catch (err) {
+            console.error('Failed to handle capturable payment intent:', err);
+          }
+          break;
+
         case 'payment_intent.succeeded':
           const paymentIntent = event.data.object as stripe.PaymentIntent;
           await TransactionRepository.updateTransaction({
@@ -160,6 +307,17 @@ export class StripeController {
           try {
             const tx = await this.prisma.paymentTransaction.findFirst({ where: { reference_number: paymentIntent.id } });
             if (tx && tx.user_id) {
+              if (tx.type === 'booking') {
+                await this.prisma.paymentTransaction.update({
+                  where: { id: tx.id },
+                  data: {
+                    status: 'captured',
+                    paid_amount: paymentIntent.amount / 100,
+                    paid_currency: paymentIntent.currency,
+                    raw_status: paymentIntent.status,
+                  },
+                });
+              }
               if (tx.type && (tx.type === 'registration' || tx.type === 'registration_and_subscription')) {
                 await (this.prisma as any).coachProfile.updateMany({
                   where: { user_id: tx.user_id },
@@ -200,24 +358,45 @@ export class StripeController {
                   console.error('Failed to update subscription fields for coach profile:', err);
                 }
               }
-              try {
-                const booking = await this.prisma.booking.findFirst({ where: { payment_transaction_id: tx.id } });
-                if (booking) {
-                  const token = crypto.randomInt(100000, 1000000).toString();
-                  const expires = new Date();
-                  expires.setHours(expires.getHours() + 24); 
 
-                  await this.prisma.booking.update({
-                    where: { id: booking.id },
-                    data: {
-                      status: 'CONFIRMED',
-                      validation_token: token,
-                      token_expires_at: expires,
-                    },
+              if (tx.type === 'custom_offer') {
+                try {
+                  const customOffer = await this.prisma.customOffer.findFirst({
+                    where: { payment_transaction_id: tx.id },
                   });
+                  if (customOffer) {
+                    const paidAmount = paymentIntent.amount / 100;
+                    const currentPaid = customOffer.paid_amount
+                      ? Number(customOffer.paid_amount)
+                      : 0;
+                    await this.prisma.customOffer.update({
+                      where: { id: customOffer.id },
+                      data: {
+                        status: 'ACCEPTED',
+                        due_amount: 0,
+                        paid_amount: currentPaid + paidAmount,
+                        responded_at: new Date(),
+                      },
+                    });
+
+                    await this.prisma.booking.update({
+                      where: { id: customOffer.booking_id },
+                      data: {
+                        title: customOffer.title,
+                        appointment_date: customOffer.appointment_date,
+                        session_time: customOffer.session_time,
+                        session_time_display: customOffer.session_time_display,
+                        duration_minutes: customOffer.duration_minutes,
+                        number_of_members: customOffer.number_of_members,
+                        session_price: customOffer.session_price,
+                        total_amount: customOffer.total_amount,
+                        currency: customOffer.currency,
+                      },
+                    });
+                  }
+                } catch (err) {
+                  console.error('Failed to mark custom offer accepted after payment:', err);
                 }
-              } catch (err) {
-                console.error('Failed to mark booking confirmed after payment:', err);
               }
             }
           } catch (err) {
@@ -231,6 +410,29 @@ export class StripeController {
             status: 'failed',
             raw_status: failedPaymentIntent.status,
           });
+          try {
+            const tx = await this.prisma.paymentTransaction.findFirst({
+              where: { reference_number: failedPaymentIntent.id },
+            });
+            if (tx?.type === 'booking') {
+              const booking = await this.prisma.booking.findFirst({
+                where: { payment_transaction_id: tx.id },
+              });
+              if (booking) {
+                await this.prisma.booking.update({
+                  where: { id: booking.id },
+                  data: {
+                    status: 'CANCELLED',
+                    validation_token: null,
+                    token_expires_at: null,
+                  },
+                });
+              }
+            }
+          } catch (err) {
+            console.error('Failed to handle booking payment failure:', err);
+          }
+          break;
         case 'payment_intent.canceled':
           const canceledPaymentIntent = event.data.object as stripe.PaymentIntent;
           await TransactionRepository.updateTransaction({
@@ -238,6 +440,28 @@ export class StripeController {
             status: 'canceled',
             raw_status: canceledPaymentIntent.status,
           });
+          try {
+            const tx = await this.prisma.paymentTransaction.findFirst({
+              where: { reference_number: canceledPaymentIntent.id },
+            });
+            if (tx?.type === 'booking') {
+              const booking = await this.prisma.booking.findFirst({
+                where: { payment_transaction_id: tx.id },
+              });
+              if (booking) {
+                await this.prisma.booking.update({
+                  where: { id: booking.id },
+                  data: {
+                    status: 'CANCELLED',
+                    validation_token: null,
+                    token_expires_at: null,
+                  },
+                });
+              }
+            }
+          } catch (err) {
+            console.error('Failed to handle booking payment cancellation:', err);
+          }
           break;
         case 'payment_intent.requires_action':
           const requireActionPaymentIntent = event.data.object as stripe.PaymentIntent;

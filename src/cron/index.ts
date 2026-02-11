@@ -15,3 +15,4 @@
  */
 
 export { BookingsCleanupCron } from './bookings-cleanup.cron';
+export { BookingsPaymentExpiryCron } from './bookings-payment-expiry.cron';

@@ -823,8 +823,13 @@ export class BookingsService {
       // parse and validate date (accept flexible formats like 2025-10-5T10:55:51.710Z)
       const normalizeDateString = (s: string) => {
         if (!s || typeof s !== 'string') return s;
+        
+        // trim whitespace
+        let str = s.trim();
+        
         // allow space instead of T
-        let str = s.replace(' ', 'T');
+        str = str.replace(' ', 'T');
+        
         // try native parse first
         const d = new Date(str);
         if (!isNaN(d.getTime())) return str;
@@ -858,7 +863,7 @@ export class BookingsService {
       const normalized = normalizeDateString(date);
       const appointmentDate = new Date(normalized);
       if (isNaN(appointmentDate.getTime()))
-        throw new BadRequestException('Invalid date format');
+        throw new BadRequestException(`Invalid date format. Received: "${date}". Expected formats: YYYY-MM-DD or ISO 8601`);
 
       // Validate appointment date is not in the past
       const now = new Date();
@@ -979,11 +984,15 @@ export class BookingsService {
           Number(booking.session_price) || Number(booking.total_amount) || 0;
         console.log('ammount', amount);
         const currency = booking.currency || 'USD';
-        const paymentIntent = await StripePayment.createPaymentIntent({
+        const paymentIntent = await StripePayment.createManualCapturePaymentIntent({
           amount,
           currency,
           customer_id: customerId,
-          metadata: { booking_id: booking.id, user_id: getAthlete.id },
+          metadata: {
+            booking_id: booking.id,
+            user_id: getAthlete.id,
+            type: 'booking',
+          },
         });
 
         // create payment transaction and link to booking
@@ -994,6 +1003,8 @@ export class BookingsService {
             currency: currency || undefined,
             reference_number: paymentIntent.id,
             status: 'pending',
+            type: 'booking',
+            provider: 'stripe',
           },
         });
 
@@ -1060,7 +1071,7 @@ export class BookingsService {
       // create payment intent for package total
       const amount = Number(booking.total_amount) || 0;
       const currency = booking.currency || 'USD';
-      const paymentIntent = await StripePayment.createPaymentIntent({
+      const paymentIntent = await StripePayment.createManualCapturePaymentIntent({
         amount,
         currency,
         customer_id: customerId,
@@ -1068,6 +1079,7 @@ export class BookingsService {
           booking_id: booking.id,
           user_id: getAthlete.id,
           package_id: sessionPackage.id,
+          type: 'booking',
         },
       });
 
@@ -1078,6 +1090,8 @@ export class BookingsService {
           currency: currency || undefined,
           reference_number: paymentIntent.id,
           status: 'pending',
+          type: 'booking',
+          provider: 'stripe',
         },
       });
 
@@ -1349,6 +1363,8 @@ export class BookingsService {
         user_id: athleteId,
         status: 'active',
         current_period_end: { gte: now },
+        deleted_at: null,
+        plan: { kind: 'ATHLETE' },
       },
     });
 
@@ -1397,27 +1413,9 @@ export class BookingsService {
       isPremium,
     };
 
-    // Add premium features if user has active subscription
-    if (isPremium) {
-      // Fetch mini lessons/videos from coach
-      const miniLessons = await this.prisma.video.findMany({
-        where: {
-          coach_id: booking.coach_id,
-          is_premium: true,
-        },
-        select: {
-          id: true,
-          title: true,
-          description: true,
-          thumbnail: true,
-          duration: true,
-          video_url: true,
-        },
-        take: 3,
-      });
-
-      // Fetch coach notes for user's goal
-      const coachNotes = await this.prisma.goalNote.findMany({
+    // Only videos are gated by subscription; other athlete features stay free
+    const [coachNotes, onDemandTips, userBadges, miniLessons] = await Promise.all([
+      this.prisma.goalNote.findMany({
         where: {
           user_id: athleteId,
           coach_id: booking.coach_id,
@@ -1435,10 +1433,8 @@ export class BookingsService {
         },
         orderBy: { created_at: 'desc' },
         take: 5,
-      });
-
-      // Fetch on-demand tips from coach's goals or profile
-      const onDemandTips = await this.prisma.goalNote.findMany({
+      }),
+      this.prisma.goalNote.findMany({
         where: {
           coach_id: booking.coach_id,
           user_id: athleteId,
@@ -1450,10 +1446,8 @@ export class BookingsService {
         },
         orderBy: { created_at: 'desc' },
         take: 3,
-      });
-
-      // Fetch user's badges and rewards
-      const userBadges = await this.prisma.userBadge.findMany({
+      }),
+      this.prisma.userBadge.findMany({
         where: { user_id: athleteId },
         include: {
           badge: {
@@ -1468,24 +1462,41 @@ export class BookingsService {
           },
         },
         orderBy: { earned_at: 'desc' },
-      });
+      }),
+      isPremium
+        ? this.prisma.video.findMany({
+            where: {
+              coach_id: booking.coach_id,
+              is_premium: true,
+            },
+            select: {
+              id: true,
+              title: true,
+              description: true,
+              thumbnail: true,
+              duration: true,
+              video_url: true,
+            },
+            take: 3,
+          })
+        : Promise.resolve([]),
+    ]);
 
-      response = {
-        ...response,
-        premiumFeatures: {
-          miniLessons: miniLessons || [],
-          coachNotes: coachNotes || [],
-          onDemandTips: onDemandTips || [],
-          badgesAndRewards:
-            userBadges.map((ub) => ({
-              id: ub.id,
-              earnedAt: ub.earned_at,
-              badge: ub.badge,
-              progress: ub.progress,
-            })) || [],
-        },
-      };
-    }
+    response = {
+      ...response,
+      premiumFeatures: {
+        miniLessons: miniLessons || [],
+        coachNotes: coachNotes || [],
+        onDemandTips: onDemandTips || [],
+        badgesAndRewards:
+          userBadges.map((ub) => ({
+            id: ub.id,
+            earnedAt: ub.earned_at,
+            badge: ub.badge,
+            progress: ub.progress,
+          })) || [],
+      },
+    };
 
     return {
       success: true,
@@ -2131,6 +2142,8 @@ export class BookingsService {
           user_id: userId,
           status: 'active',
           current_period_end: { gte: now },
+          deleted_at: null,
+          plan: { kind: 'ATHLETE' },
         },
       });
       isPremium = !!activeSubscription;
@@ -2354,78 +2367,75 @@ export class BookingsService {
       response.isPremium = isPremium;
     }
 
-    // Add premium features if user has active subscription (athlete only)
-    if (!isCoach && isPremium) {
-      // Fetch mini lessons/videos from coach
-      const miniLessons = await this.prisma.video.findMany({
-        where: {
-          coach_id: booking.coach_id,
-          is_premium: true,
-        },
-        select: {
-          id: true,
-          title: true,
-          description: true,
-          thumbnail: true,
-          duration: true,
-          video_url: true,
-        },
-        take: 5,
-      });
-
-      // Fetch coach notes for user's goal
-      const coachNotes = await this.prisma.goalNote.findMany({
-        where: {
-          user_id: userId,
-          coach_id: booking.coach_id,
-        },
-        select: {
-          id: true,
-          note: true,
-          created_at: true,
-          goal: {
-            select: {
-              id: true,
-              title: true,
+    // Only videos are gated by subscription; other athlete features stay free
+    if (!isCoach) {
+      const [coachNotes, onDemandTips, userBadges, miniLessons] = await Promise.all([
+        this.prisma.goalNote.findMany({
+          where: {
+            user_id: userId,
+            coach_id: booking.coach_id,
+          },
+          select: {
+            id: true,
+            note: true,
+            created_at: true,
+            goal: {
+              select: {
+                id: true,
+                title: true,
+              },
             },
           },
-        },
-        orderBy: { created_at: 'desc' },
-        take: 5,
-      });
-
-      // Fetch on-demand tips
-      const onDemandTips = await this.prisma.goalNote.findMany({
-        where: {
-          coach_id: booking.coach_id,
-          user_id: userId,
-        },
-        select: {
-          id: true,
-          note: true,
-          created_at: true,
-        },
-        orderBy: { created_at: 'desc' },
-        take: 3,
-      });
-
-      // Fetch user's badges and rewards
-      const userBadges = await this.prisma.userBadge.findMany({
-        where: { user_id: userId },
-        include: {
-          badge: {
-            select: {
-              id: true,
-              key: true,
-              title: true,
-              description: true,
-              points: true,
-              icon: true,
+          orderBy: { created_at: 'desc' },
+          take: 5,
+        }),
+        this.prisma.goalNote.findMany({
+          where: {
+            coach_id: booking.coach_id,
+            user_id: userId,
+          },
+          select: {
+            id: true,
+            note: true,
+            created_at: true,
+          },
+          orderBy: { created_at: 'desc' },
+          take: 3,
+        }),
+        this.prisma.userBadge.findMany({
+          where: { user_id: userId },
+          include: {
+            badge: {
+              select: {
+                id: true,
+                key: true,
+                title: true,
+                description: true,
+                points: true,
+                icon: true,
+              },
             },
           },
-        },
-        orderBy: { earned_at: 'desc' },
-      });
+          orderBy: { earned_at: 'desc' },
+        }),
+        isPremium
+          ? this.prisma.video.findMany({
+              where: {
+                coach_id: booking.coach_id,
+                is_premium: true,
+              },
+              select: {
+                id: true,
+                title: true,
+                description: true,
+                thumbnail: true,
+                duration: true,
+                video_url: true,
+              },
+              take: 5,
+            })
+          : Promise.resolve([]),
+      ]);
 
       response.premiumFeatures = {
         miniLessons: miniLessons || [],
@@ -2469,6 +2479,16 @@ export class BookingsService {
       },
     });
     if (!booking) throw new NotFoundException('Booking not found');
+
+    const existingOffer = await this.prisma.customOffer.findFirst({
+      where: {
+        booking_id: bookingId,
+        status: { in: ['PENDING', 'PAYMENT_PENDING'] },
+      },
+    });
+    if (existingOffer) {
+      throw new BadRequestException('A custom offer is already pending');
+    }
 
     // Build update data
     const updateData: any = {};
@@ -2801,21 +2821,33 @@ export class BookingsService {
 
     // Calculate pricing
     // Base price per session from booking or coach profile
-    const basePricePerSession = Number(booking.session_price) || Number(coachProfile.session_price) || 55;
-    
+    const basePricePerSession =
+      Number(booking.session_price) ||
+      Number(coachProfile.session_price) ||
+      55;
+
     // Total amount = base price per session × number of members
     const totalAmount = basePricePerSession * numberOfMembers;
-    
-    // Paid amount (from current booking if exists)
-    const paidAmount = Number(booking.total_amount) || Number(booking.session_price) || basePricePerSession;
-    
+
+    // Paid amount (from successful payment transaction if available)
+    let paidAmount = 0;
+    if (booking.payment_transaction_id) {
+      const tx = await this.prisma.paymentTransaction.findUnique({
+        where: { id: booking.payment_transaction_id },
+      });
+      if (tx && tx.status === 'succeeded' && tx.paid_amount) {
+        paidAmount = Number(tx.paid_amount);
+      }
+    }
+
     // Due amount = total amount - paid amount
     const dueAmount = totalAmount - paidAmount;
 
-    // Update the booking with custom offer details
-    const updatedBooking = await this.prisma.booking.update({
-      where: { id: bookingId },
+    const offer = await this.prisma.customOffer.create({
       data: {
+        booking_id: bookingId,
+        coach_id: coachId,
+        athlete_id: booking.user_id,
         title: customOfferDto.title || booking.title,
         appointment_date: newDate,
         session_time: sessionDateTime,
@@ -2824,7 +2856,13 @@ export class BookingsService {
         number_of_members: numberOfMembers,
         session_price: basePricePerSession,
         total_amount: totalAmount,
+        paid_amount: paidAmount,
+        due_amount: dueAmount > 0 ? dueAmount : 0,
         currency: booking.currency || 'USD',
+        status: 'PENDING',
+        sent_at: new Date(),
+        responded_at: null,
+        payment_transaction_id: null,
       },
     });
 
@@ -2841,21 +2879,22 @@ export class BookingsService {
       success: true,
       message: 'Custom offer sent successfully',
       data: {
-        id: updatedBooking.id,
-        title: updatedBooking.title,
-        appointment_date: updatedBooking.appointment_date,
-        session_time: updatedBooking.session_time,
-        session_time_display: updatedBooking.session_time_display,
-        duration_minutes: updatedBooking.duration_minutes,
-        number_of_members: updatedBooking.number_of_members,
+        id: offer.id,
+        title: offer.title,
+        appointment_date: offer.appointment_date,
+        session_time: offer.session_time,
+        session_time_display: offer.session_time_display,
+        duration_minutes: offer.duration_minutes,
+        number_of_members: offer.number_of_members,
         pricing: {
           base_price_per_session: basePricePerSession,
           paid_amount: paidAmount,
           due_amount: dueAmount > 0 ? dueAmount : 0,
           total_amount: totalAmount,
-          currency: updatedBooking.currency,
+          currency: offer.currency || 'USD',
         },
-        status: updatedBooking.status,
+        custom_offer_status: offer.status,
+        status: booking.status,
       },
     };
   }
@@ -2893,6 +2932,62 @@ export class BookingsService {
     if (booking.validation_token !== token)
       throw new BadRequestException('Invalid validation token');
 
+    if (booking.status === 'COMPLETED') {
+      throw new BadRequestException('Booking is already completed');
+    }
+
+    if (!booking.payment_transaction_id) {
+      throw new BadRequestException('Payment transaction not found');
+    }
+
+    const paymentTx = await this.prisma.paymentTransaction.findUnique({
+      where: { id: booking.payment_transaction_id },
+    });
+
+    if (!paymentTx?.reference_number) {
+      throw new BadRequestException('Payment intent not found');
+    }
+
+    if (!coachProfile.stripe_account_id) {
+      throw new BadRequestException(
+        'Coach payout account is not connected. Please complete Stripe onboarding.',
+      );
+    }
+
+    const intent = await StripePayment.retrievePaymentIntent(
+      paymentTx.reference_number,
+    );
+
+    const captured =
+      intent.status === 'succeeded'
+        ? intent
+        : await StripePayment.capturePaymentIntent(paymentTx.reference_number);
+
+    const payoutAmount = paymentTx.amount
+      ? Number(paymentTx.amount)
+      : booking.total_amount
+        ? Number(booking.total_amount)
+        : booking.session_price
+          ? Number(booking.session_price)
+          : 0;
+    const payoutCurrency =
+      paymentTx.currency || booking.currency || 'USD';
+
+    let transferReference: string | undefined;
+    let transferStatus: string | undefined;
+    try {
+      const transfer = await StripePayment.createTransfer(
+        coachProfile.stripe_account_id,
+        payoutAmount,
+        payoutCurrency,
+      );
+      transferReference = transfer.id;
+      transferStatus = 'created';
+    } catch (error) {
+      transferStatus = 'failed';
+      console.error('Transfer failed:', error);
+    }
+
     // mark booking completed and clear token (single-use)
     const updated = await this.prisma.booking.update({
       where: { id: bookingId },
@@ -2901,6 +2996,20 @@ export class BookingsService {
         validation_token: null,
         token_expires_at: null,
         total_completed_session: (booking.total_completed_session || 0) + 1,
+      },
+    });
+
+    await this.prisma.paymentTransaction.update({
+      where: { id: booking.payment_transaction_id },
+      data: {
+        status: captured.status === 'succeeded' ? 'captured' : captured.status,
+        paid_amount: captured.amount_received
+          ? captured.amount_received / 100
+          : undefined,
+        paid_currency: captured.currency,
+        raw_status: captured.status,
+        transfer_reference: transferReference,
+        transfer_status: transferStatus,
       },
     });
 
@@ -2923,8 +3032,12 @@ export class BookingsService {
     );
 
     return {
-      message: 'Booking validated and marked as completed',
+      message:
+        transferStatus === 'failed'
+          ? 'Booking validated. Payout transfer failed and needs retry.'
+          : 'Booking validated and marked as completed',
       booking: updated,
+      transfer_status: transferStatus,
     };
   }
 

@@ -15,6 +15,8 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { GetUser } from 'src/modules/auth/decorators/get-user.decorator';
 import { CustomOfferDto } from './dto/custom-offer.dto';
+import { CustomOfferResponseDto } from './dto/custom-offer-response.dto';
+import { BookingUpdateViaChatDto } from './dto/booking-update.dto';
 
 @ApiBearerAuth()
 @ApiTags('Message')
@@ -99,5 +101,32 @@ export class MessageController {
     @Body() customOfferDto: CustomOfferDto,
   ) {
     return this.messageService.sendCustomOffer(coachId, customOfferDto);
+  }
+
+  @ApiOperation({ summary: 'Accept a custom offer and pay remaining amount' })
+  @Post('custom-offer/accept')
+  async acceptCustomOffer(
+    @GetUser('userId') athleteId: string,
+    @Body() body: CustomOfferResponseDto,
+  ) {
+    return this.messageService.acceptCustomOffer(athleteId, body);
+  }
+
+  @ApiOperation({ summary: 'Decline a custom offer' })
+  @Post('custom-offer/decline')
+  async declineCustomOffer(
+    @GetUser('userId') athleteId: string,
+    @Body() body: CustomOfferResponseDto,
+  ) {
+    return this.messageService.declineCustomOffer(athleteId, body);
+  }
+
+  @ApiOperation({ summary: 'Update a booking via chat (coach only)' })
+  @Post('booking/update')
+  async updateBookingViaChat(
+    @GetUser('userId') coachId: string,
+    @Body() body: BookingUpdateViaChatDto,
+  ) {
+    return this.messageService.updateBookingViaChat(coachId, body);
   }
 }
