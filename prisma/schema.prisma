@@ -121,6 +121,7 @@ model SubscriptionPlan {
   currency        String             @default("USD")
   interval        String             @default("month")
   stripe_price_id String             @unique
+  kind            SubscriptionPlanKind @default(COACH)
   features        Json?
   description     String?
   is_active       Int?               @default(1) @db.SmallInt
@@ -128,6 +129,11 @@ model SubscriptionPlan {
   subscriptions   UserSubscription[]
 
   @@map("subscription_plans")
+}
+
+enum SubscriptionPlanKind {
+  COACH
+  ATHLETE
 }
 
 model UserSubscription {
@@ -181,6 +187,10 @@ model CoachProfile {
   subscription_expires_at DateTime?
   subscription_provider   String?
   subscription_reference  String?
+
+  // Stripe Connect
+  stripe_account_id     String?
+  stripe_account_status String?
 
   // aggregated rating fields (avg + count) for fast public display
   avg_rating          Decimal?
@@ -425,8 +435,11 @@ model PaymentTransaction {
   currency         String?
   paid_amount      Decimal?
   paid_currency    String?
+  transfer_reference String?
+  transfer_status    String?
 
-  bookings Booking[]
+  bookings Booking[] @relation("BookingPaymentTransaction")
+  customOffers CustomOffer[]
 
   @@map("payment_transactions")
 }
@@ -438,6 +451,7 @@ enum BookingStatus {
   CANCELLED
   COMPLETED
 }
+
 
 model Booking {
   id         String    @id @default(cuid())
@@ -477,7 +491,7 @@ model Booking {
   currency     String?
 
   payment_transaction_id String?
-  payment_transaction    PaymentTransaction? @relation(fields: [payment_transaction_id], references: [id])
+  payment_transaction    PaymentTransaction? @relation("BookingPaymentTransaction", fields: [payment_transaction_id], references: [id])
 
   status BookingStatus @default(PENDING)
 
@@ -491,7 +505,53 @@ model Booking {
   latitude  Decimal?
   longitude Decimal?
 
+  customOffers CustomOffer[]
+
   @@map("bookings")
+}
+
+enum CustomOfferStatus {
+  PENDING
+  PAYMENT_PENDING
+  ACCEPTED
+  DECLINED
+}
+
+model CustomOffer {
+  id         String    @id @default(cuid())
+  created_at DateTime  @default(now())
+  updated_at DateTime  @default(now())
+  deleted_at DateTime?
+
+  booking_id String
+  booking    Booking   @relation(fields: [booking_id], references: [id], onDelete: Cascade)
+
+  coach_id   String
+  athlete_id String
+
+  title                   String?
+  appointment_date        DateTime
+  session_time            DateTime?
+  session_time_display    String?
+  duration_minutes        Int?
+  number_of_members       Int?     @default(1)
+  session_price           Decimal?
+  total_amount            Decimal?
+  paid_amount             Decimal?
+  due_amount              Decimal?
+  currency                String?
+
+  status                  CustomOfferStatus @default(PENDING)
+  sent_at                 DateTime?
+  responded_at            DateTime?
+
+  payment_transaction_id  String?
+  payment_transaction     PaymentTransaction? @relation(fields: [payment_transaction_id], references: [id])
+
+  @@index([booking_id])
+  @@index([coach_id])
+  @@index([athlete_id])
+  @@map("custom_offers")
 }
 
 // ---------Start Chat schema---------

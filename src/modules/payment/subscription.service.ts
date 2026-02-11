@@ -12,6 +12,7 @@ export class SubscriptionService {
     price,
     currency = 'USD',
     interval = 'month',
+    kind = 'COACH',
     features,
     description,
   }: {
@@ -20,9 +21,14 @@ export class SubscriptionService {
     price: number;
     currency?: string;
     interval?: string;
+    kind?: string;
     features?: string[];
     description?: string;
   }) {
+    const normalizedKind = String(kind || 'COACH').toUpperCase();
+    if (!['COACH', 'ATHLETE'].includes(normalizedKind)) {
+      throw new HttpException('Invalid plan kind', HttpStatus.BAD_REQUEST);
+    }
     const product = await StripePayment.createProduct({
       name,
       description,
@@ -41,6 +47,7 @@ export class SubscriptionService {
           price,
           currency,
           interval,
+          kind: normalizedKind as any,
           features: features || [],
           description,
           stripe_price_id: stripePrice.id,
@@ -53,6 +60,7 @@ export class SubscriptionService {
           price,
           currency,
           interval,
+          kind: normalizedKind as any,
           features: features || [],
           description,
           stripe_price_id: stripePrice.id,
@@ -63,9 +71,13 @@ export class SubscriptionService {
   async createSubscriptionCheckout({
     user_id,
     plan_id,
+    enforce_coach = false,
+    enforce_athlete = false,
   }: {
     user_id: string;
     plan_id: string;
+    enforce_coach?: boolean;
+    enforce_athlete?: boolean;
   }) {
     try {
       const user = await this.prisma.user.findUnique({
@@ -74,12 +86,57 @@ export class SubscriptionService {
       if (!user) {
         throw new NotFoundException('User not found');
       }
+      if (enforce_coach && user.type !== 'coach') {
+        throw new HttpException(
+          'Only coaches can subscribe to coach plans',
+          HttpStatus.FORBIDDEN,
+        );
+      }
+      if (enforce_athlete && user.type === 'coach') {
+        throw new HttpException(
+          'Coaches cannot subscribe to athlete plans',
+          HttpStatus.FORBIDDEN,
+        );
+      }
+
       const plan = await this.prisma.subscriptionPlan.findUnique({
         where: { id: plan_id },
       });
 
       if (!plan) {
         throw new NotFoundException('Subscription plan not found');
+      }
+
+      if (enforce_coach && plan.kind !== 'COACH') {
+        throw new HttpException(
+          'Only coach plans can be used for coach subscriptions',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      if (enforce_athlete && plan.kind !== 'ATHLETE') {
+        throw new HttpException(
+          'Only athlete plans can be used for athlete subscriptions',
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      if (enforce_coach || enforce_athlete) {
+        const existingSubscription = await this.prisma.userSubscription.findFirst({
+          where: {
+            user_id,
+            status: 'active',
+            deleted_at: null,
+          },
+          select: { id: true },
+        });
+
+        if (existingSubscription) {
+          throw new HttpException(
+            'Active subscription already exists for this user',
+            HttpStatus.CONFLICT,
+          );
+        }
       }
 
       if (!plan.stripe_price_id) {
@@ -96,13 +153,37 @@ export class SubscriptionService {
           email: user.email || '',
         });
         customer_id = customer.id;
-        
+
         await this.prisma.user.update({
           where: { id: user_id },
           data: { billing_id: customer_id },
         });
       }
       const baseUrl = appConfig().app.client_app_url || appConfig().app.url;
+
+      let addInvoiceItems: Array<{
+        amount: number;
+        currency: string;
+        description: string;
+      }> = [];
+
+      if (enforce_coach) {
+        const coachProfile = await this.prisma.coachProfile.findFirst({
+          where: { user_id },
+          select: { registration_fee_paid: true },
+        });
+
+        if (!coachProfile || !coachProfile.registration_fee_paid) {
+          const registrationFee =
+            appConfig().payment.registration.coach_registration_fee ?? 10;
+          addInvoiceItems.push({
+            amount: registrationFee,
+            currency: plan.currency || 'USD',
+            description: 'Coach registration fee',
+          });
+        }
+      }
+
       const session = await StripePayment.createSubscriptionCheckoutSession({
         customer_id,
         price_id: plan.stripe_price_id,
@@ -111,7 +192,9 @@ export class SubscriptionService {
         metadata: {
           user_id,
           plan_id,
+          registration_fee: addInvoiceItems.length > 0 ? '1' : '0',
         },
+        add_invoice_items: addInvoiceItems.length > 0 ? addInvoiceItems : undefined,
       });
 
       return session;
@@ -134,14 +217,24 @@ export class SubscriptionService {
   async cancelSubscription({
     user_id,
     cancel_immediately = false,
+    kind,
   }: {
     user_id: string;
     cancel_immediately?: boolean;
+    kind?: string;
   }) {
+    let normalizedKind: string | undefined;
+    if (kind) {
+      normalizedKind = String(kind).toUpperCase();
+      if (!['COACH', 'ATHLETE'].includes(normalizedKind)) {
+        throw new HttpException('Invalid plan kind', HttpStatus.BAD_REQUEST);
+      }
+    }
     const subscription = await this.prisma.userSubscription.findFirst({
       where: {
         user_id,
         status: 'active',
+        ...(normalizedKind ? { plan: { kind: normalizedKind as any } } : {}),
       },
     });
 
@@ -161,11 +254,19 @@ export class SubscriptionService {
       },
     });
   }
-  async getUserSubscription(user_id: string) {
+  async getUserSubscription(user_id: string, kind?: string) {
+    let normalizedKind: string | undefined;
+    if (kind) {
+      normalizedKind = String(kind).toUpperCase();
+      if (!['COACH', 'ATHLETE'].includes(normalizedKind)) {
+        throw new HttpException('Invalid plan kind', HttpStatus.BAD_REQUEST);
+      }
+    }
     const subscription = await this.prisma.userSubscription.findFirst({
       where: {
         user_id,
         status: 'active',
+        ...(normalizedKind ? { plan: { kind: normalizedKind as any } } : {}),
       },
       include: {
         plan: true,
@@ -176,11 +277,19 @@ export class SubscriptionService {
       hasSubscription: !!subscription,
     };
   }
-  async getAllPlans() {
+  async getAllPlans(kind?: string) {
+    let normalizedKind: string | undefined;
+    if (kind) {
+      normalizedKind = String(kind).toUpperCase();
+      if (!['COACH', 'ATHLETE'].includes(normalizedKind)) {
+        throw new HttpException('Invalid plan kind', HttpStatus.BAD_REQUEST);
+      }
+    }
     return await this.prisma.subscriptionPlan.findMany({
       where: {
         is_active: 1,
         deleted_at: null,
+        ...(normalizedKind ? { kind: normalizedKind as any } : {}),
       },
       orderBy: {
         sort_order: 'asc',

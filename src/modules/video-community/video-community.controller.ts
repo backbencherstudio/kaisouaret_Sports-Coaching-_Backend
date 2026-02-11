@@ -12,6 +12,7 @@ import {
 import { VideoCommunityService } from './video-community.service';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { AthleteVideoGuard } from './guards/athlete-video.guard';
 import { GetUser } from '../auth/decorators/get-user.decorator';
 import { CreatePostDto } from './dto/video-community-create.dto';
 import { memoryStorage } from 'multer';
@@ -19,7 +20,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 
 @Controller('video-community')
 @ApiTags('video-community')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, AthleteVideoGuard)
 export class VideoCommunityController {
   constructor(private readonly videoCommunityService: VideoCommunityService) {}
 

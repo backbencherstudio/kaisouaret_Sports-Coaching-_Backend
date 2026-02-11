@@ -286,30 +286,6 @@ export class AuthController {
     }
   }
 
-  @ApiOperation({ summary: 'Create coach registration payment intent' })
-  @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
-  @Post('coach/registration/create-payment')
-  async createCoachRegistrationPayment(
-    @Req() req: Request,
-    @Body() body: { amount?: number; currency?: string },
-  ) {
-    try {
-      const user_id = req.user.userId;
-      const amount = body.amount ?? 49; // default registration fee
-      const currency = body.currency ?? 'usd';
-
-      const response = await this.authService.createCoachRegistrationPayment(
-        user_id,
-        amount,
-        currency,
-      );
-      return response;
-    } catch (error) {
-      return { success: false, message: error.message };
-    }
-  }
-
   // --------------change password---------
 
   @ApiOperation({ summary: 'Forgot password' })

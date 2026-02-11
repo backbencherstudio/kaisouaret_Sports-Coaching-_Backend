@@ -1,12 +1,13 @@
 import {
-    Controller,
-    Get,
-    Post,
-    Body,
-    Param,
-    UseGuards,
-    Req,
-  } from '@nestjs/common';
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  UseGuards,
+  Req,
+  Query,
+} from '@nestjs/common';
   import { SubscriptionService } from '../../../modules/payment/subscription.service';
   import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
   import { RolesGuard } from '../../../common/guard/role/roles.guard';
@@ -30,6 +31,7 @@ import {
       price: number;
       currency?: string;
       interval?: string;
+      kind?: string;
       features?: string[];
       description?: string;
     }) {
@@ -45,9 +47,9 @@ import {
   
     @ApiOperation({ summary: 'Get All Subscription Plans' })
     @Get()
-    async getAllPlans() {
+    async getAllPlans(@Query('kind') kind?: string) {
       try {
-        return await this.subscriptionService.getAllPlans();
+        return await this.subscriptionService.getAllPlans(kind);
       } catch (error) {
         return {
           success: false,

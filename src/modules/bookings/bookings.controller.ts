@@ -234,20 +234,6 @@ export class BookingsController {
     );
   }
 
-  @ApiOperation({ summary: 'send custom offer for group/multiple members booking' })
-  @Post(':bookingId/custom-offer')
-  async sendCustomOffer(
-    @GetUser('userId') coachId: string,
-    @Param('bookingId') bookingId: string,
-    @Body() customOfferDto: any,
-  ) {
-    return this.bookingsService.sendCustomOffer(
-      coachId,
-      bookingId,
-      customOfferDto,
-    );
-  }
-
   //
   // ------------------------- session package -----------------------
   //

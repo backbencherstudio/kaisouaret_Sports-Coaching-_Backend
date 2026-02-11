@@ -144,6 +144,45 @@ export class StripePayment {
     });
   }
 
+  static async createManualCapturePaymentIntent({
+    amount,
+    currency,
+    customer_id,
+    metadata,
+  }: {
+    amount: number;
+    currency: string;
+    customer_id: string;
+    metadata?: stripe.MetadataParam;
+  }): Promise<stripe.PaymentIntent> {
+    return Stripe.paymentIntents.create({
+      amount: amount * 100,
+      currency,
+      customer: customer_id,
+      metadata,
+      capture_method: 'manual',
+    });
+  }
+
+  static async capturePaymentIntent(payment_intent_id: string) {
+    return Stripe.paymentIntents.capture(payment_intent_id);
+  }
+
+  static async cancelPaymentIntent(payment_intent_id: string) {
+    return Stripe.paymentIntents.cancel(payment_intent_id);
+  }
+
+  static async retrievePaymentIntent(payment_intent_id: string) {
+    return Stripe.paymentIntents.retrieve(payment_intent_id);
+  }
+
+  static async createRefund(payment_intent_id: string, amount?: number) {
+    return Stripe.refunds.create({
+      payment_intent: payment_intent_id,
+      ...(amount ? { amount: Math.round(amount * 100) } : {}),
+    });
+  }
+
   /**
    * Create stripe hosted checkout session
    * @param customer
@@ -315,6 +354,10 @@ export class StripePayment {
     });
 
     return connectedAccount;
+  }
+
+  static async retrieveConnectedAccount(account_id: string) {
+    return Stripe.accounts.retrieve(account_id);
   }
 
   // Before making payouts, users must complete Stripe Connect onboarding.
@@ -502,23 +545,46 @@ export class StripePayment {
     success_url,
     cancel_url,
     metadata,
+    add_invoice_items,
   }: {
     customer_id: string;
     price_id: string;
     success_url: string;
     cancel_url: string;
     metadata?: stripe.MetadataParam;
+    add_invoice_items?: Array<{
+      amount: number;
+      currency: string;
+      description: string;
+    }>;
   }): Promise<stripe.Checkout.Session> {
+    const lineItems: stripe.Checkout.SessionCreateParams.LineItem[] = [
+      {
+        price: price_id,
+        quantity: 1,
+      },
+    ];
+
+    if (add_invoice_items?.length) {
+      add_invoice_items.forEach((item) => {
+        lineItems.push({
+          price_data: {
+            currency: item.currency,
+            product_data: {
+              name: item.description,
+            },
+            unit_amount: Math.round(item.amount * 100),
+          },
+          quantity: 1,
+        });
+      });
+    }
+
     return await Stripe.checkout.sessions.create({
       mode: 'subscription',
       customer: customer_id,
       payment_method_types: ['card'],
-      line_items: [
-        {
-          price: price_id,
-          quantity: 1,
-        },
-      ],
+      line_items: lineItems,
       success_url,
       cancel_url,
       metadata,
