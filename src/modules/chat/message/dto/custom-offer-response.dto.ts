@@ -8,4 +8,8 @@ export class CustomOfferResponseDto {
   @IsNotEmpty()
   @IsString()
   conversation_id: string;
+
+  @IsNotEmpty()
+  @IsString()
+  custom_offer_id: string;
 }

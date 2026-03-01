@@ -679,4 +679,11 @@ export class StripePayment {
     return subscriptions.data;
   }
 
+  // Get Stripe Connect Account Details
+  static async getAccountDetails(
+    account_id: string,
+  ): Promise<stripe.Account> {
+    return await Stripe.accounts.retrieve(account_id);
+  }
+
 }

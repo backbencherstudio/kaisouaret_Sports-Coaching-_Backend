@@ -10,14 +10,11 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { MailModule } from '../../mail/mail.module';
 import { GoogleStrategy } from './strategies/google.strategy';
 import { AppleLoginStrategy } from './strategies/apple.strategy';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
     PassportModule.register({ defaultStrategy: 'jwt' }),
-    // JwtModule.register({
-    //   secret: appConfig().jwt.secret,
-    //   signOptions: { expiresIn: appConfig().jwt.expiry },
-    // }),
     JwtModule.registerAsync({
       useFactory: async () => ({
         secret: appConfig().jwt.secret,
@@ -26,6 +23,7 @@ import { AppleLoginStrategy } from './strategies/apple.strategy';
     }),
     PrismaModule,
     MailModule,
+    NotificationsModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, LocalStrategy, JwtStrategy, GoogleStrategy, AppleLoginStrategy],

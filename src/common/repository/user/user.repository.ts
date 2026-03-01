@@ -201,6 +201,8 @@ export class UserRepository {
     email,
     password,
     location,
+    latitude,
+    longitude,
     phone_number,
     date_of_birth,
     bio,
@@ -213,6 +215,8 @@ export class UserRepository {
     email: string;
     password: string;
     location?: string;
+    latitude?: number;
+    longitude?: number;
     date_of_birth?: string;
     bio?: string;
     phone_number?: string;
@@ -255,6 +259,14 @@ export class UserRepository {
 
       if (location) {
         data['location'] = location;
+      }
+
+      if (latitude !== undefined && latitude !== null) {
+        data['latitude'] = latitude;
+      }
+
+      if (longitude !== undefined && longitude !== null) {
+        data['longitude'] = longitude;
       }
 
       if (date_of_birth) {
@@ -326,12 +338,16 @@ export class UserRepository {
       name,
       email,
       password,
+      latitude,
+      longitude,
       role_id = null,
       type = 'user',
     }: {
       name?: string;
       email?: string;
       password?: string;
+      latitude?: number;
+      longitude?: number;
       role_id?: string;
       type?: string;
     },

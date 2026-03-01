@@ -8,6 +8,7 @@ import {
   Delete,
   Query,
   UseGuards,
+  Res,
 } from '@nestjs/common';
 import { BookingsService } from './bookings.service';
 import { UpdateBookingDto } from './dto/update-booking.dto';
@@ -30,7 +31,7 @@ export class BookingsController {
     return this.bookingsService.setBlockedDays(coachId, blockedDays);
   }
 
-  @ApiOperation({ summary: 'get blocked days for a coach' })
+  @ApiOperation({ summary: 'get coach blocked days for all' })
   @Get('coach/:coachId/blocked-days')
   async getBlockedDays(@Param('coachId') coachId: string) {
     return this.bookingsService.blockedDays(coachId);
@@ -50,7 +51,12 @@ export class BookingsController {
     @Body('startTime') startTime: string,
     @Body('endTime') endTime: string,
   ) {
-    return this.bookingsService.setBlockedTimeSlots(coachId, date, startTime, endTime);
+    return this.bookingsService.setBlockedTimeSlots(
+      coachId,
+      date,
+      startTime,
+      endTime,
+    );
   }
 
   @ApiOperation({ summary: 'set weekend days for a coach' })
@@ -98,17 +104,19 @@ export class BookingsController {
   }
 
   @ApiOperation({ summary: 'get all bookings for especific athlete' })
-  @Get('athlete/:athleteId')
-  async getAthleteBookings(@Param('athleteId') athleteId: string) {
+  @Get('athlete')
+  async getAthleteBookings(@GetUser('userId') athleteId: string) {
+    console.log('hit in all booking');
     return this.bookingsService.getAthleteBookings(athleteId);
   }
 
   @ApiOperation({ summary: 'get all bookings for especific athlete by date' })
-  @Get('athlete/:athleteId/date/:date')
+  @Get('athlete/date/:date')
   async getAthleteBookingsByDate(
-    @Param('athleteId') athleteId: string,
+    @GetUser('userId') athleteId: string,
     @Param('date') date: string,
   ) {
+    console.log('hit in the booking by date');
     return this.bookingsService.getAthleteBookingsByDate(athleteId, date);
   }
 
@@ -174,6 +182,21 @@ export class BookingsController {
     return this.bookingsService.getBookingByIdForCoach(coachId, bookingId);
   }
 
+  @ApiOperation({ summary: 'cancel a booking by coach' })
+  @Delete(':bookingId/cancel')
+  async cancelBooking(
+    @GetUser('userId') coachId: string,
+    @Param('bookingId') bookingId: string,
+  ) {
+    return this.bookingsService.cancelBooking(coachId, bookingId);
+  }
+
+  @ApiOperation({ summary: 'get cancelled bookings for logged-in user' })
+  @Get('cancelled')
+  async getCancelledBookings(@GetUser('userId') userId: string) {
+    return this.bookingsService.getCancelledBookings(userId);
+  }
+
   @ApiOperation({ summary: 'get test' })
   @Get('coach/test/test')
   async test(@GetUser('userId') coachId: string) {
@@ -186,8 +209,19 @@ export class BookingsController {
     @GetUser('userId') coachId: string,
     @Param('bookingId') bookingId: string,
     @Body('token') token: string,
+    @Res() res: any,
   ) {
-    return this.bookingsService.validateBookingToken(coachId, bookingId, token);
+    const result = await this.bookingsService.validateBookingToken(
+      coachId,
+      bookingId,
+      token,
+    );
+    return res.status(result.statusCode).json({
+      success: true,
+      statusCode: result.statusCode,
+      message: result.message,
+      data: result.data,
+    });
   }
 
   // Reinsert athlete booking-by-id and token endpoints here (after literal routes)
@@ -300,5 +334,14 @@ export class BookingsController {
   @Get('coach/:coachId/details')
   async getCoachDetails(@Param('coachId') coachId: string) {
     return this.bookingsService.getCoachDetails(coachId);
+  }
+
+  @ApiOperation({ summary: 'get selected athlete details' })
+  @Get('athlete/:athleteId/details')
+  async getAthleteDetails(
+    @GetUser('userId') coachId: string,
+    @Param('athleteId') athleteId: string,
+  ) {
+    return this.bookingsService.getAthleteDetails(coachId, athleteId);
   }
 }

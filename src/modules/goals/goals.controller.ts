@@ -33,6 +33,12 @@ export class GoalsController {
     return this.goalsService.createGoal(userId, body);
   }
 
+  @ApiOperation({ summary: 'Get all coaches for the authenticated user' })
+  @Get('my-coaches')
+  async getMyCoaches(@GetUser('userId') userId: string) {
+    return this.goalsService.getMyCoaches(userId);
+  }
+
   @ApiOperation({
     summary: 'Update an existing goal for the authenticated user',
   })

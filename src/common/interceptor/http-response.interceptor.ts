@@ -73,6 +73,7 @@ export class HttpResponseInterceptor<T>
 
   /**
    * Determine the appropriate HTTP status code based on:
+   * - Response success field (if success: false, return error status)
    * - HTTP method (POST creates = 201, GET = 200, DELETE = 200/204)
    * - Current response status code
    * - Response data content
@@ -85,6 +86,11 @@ export class HttpResponseInterceptor<T>
     // If status code was explicitly set by controller, respect it
     if (currentStatusCode !== HttpStatus.OK && currentStatusCode !== 200) {
       return currentStatusCode;
+    }
+
+    // Check if response has success: false and map to appropriate error status code
+    if (data && typeof data === 'object' && 'success' in data && !data.success) {
+      return this.getErrorStatusCode(data.message);
     }
 
     // Check if data explicitly contains statusCode
@@ -121,6 +127,58 @@ export class HttpResponseInterceptor<T>
         // GET and other operations
         return HttpStatus.OK; // 200
     }
+  }
+
+  /**
+   * Map error message to appropriate HTTP status code
+   */
+  private getErrorStatusCode(message: string): number {
+    if (!message || typeof message !== 'string') {
+      return HttpStatus.BAD_REQUEST; // 400
+    }
+
+    const lowerMessage = message.toLowerCase();
+
+    // 404 Not Found
+    if (lowerMessage.includes('not found') || lowerMessage.includes('does not exist')) {
+      return HttpStatus.NOT_FOUND;
+    }
+
+    // 401 Unauthorized - authentication failures
+    if (
+      lowerMessage.includes('unauthorized') ||
+      lowerMessage.includes('invalid token') ||
+      lowerMessage.includes('token expired') ||
+      lowerMessage.includes('invalid password') ||
+      lowerMessage.includes('password incorrect') ||
+      lowerMessage.includes('current password is incorrect') ||
+      lowerMessage.includes('email not found')
+    ) {
+      return HttpStatus.UNAUTHORIZED;
+    }
+
+    // 403 Forbidden - authorization failures
+    if (
+      lowerMessage.includes('forbidden') ||
+      lowerMessage.includes('access denied') ||
+      lowerMessage.includes('permission denied') ||
+      lowerMessage.includes('not allowed')
+    ) {
+      return HttpStatus.FORBIDDEN;
+    }
+
+    // 409 Conflict - resource already exists
+    if (
+      lowerMessage.includes('conflict') ||
+      lowerMessage.includes('already exists') ||
+      lowerMessage.includes('duplicate') ||
+      lowerMessage.includes('email already')
+    ) {
+      return HttpStatus.CONFLICT;
+    }
+
+    // Default to 400 Bad Request for all other failures
+    return HttpStatus.BAD_REQUEST;
   }
 
   /**
@@ -187,9 +245,20 @@ export class HttpResponseInterceptor<T>
       return data;
     }
 
-    // If data already has a 'data' property, use it
+    // If data already has a 'data' property, use it and preserve important metadata
     if ('data' in data && data.data !== undefined) {
-      return data.data;
+      const result: any = data.data;
+
+      // Preserve important metadata fields
+      if ('summary' in data && data.summary !== undefined) {
+        return { data: result, summary: data.summary };
+      }
+
+      if ('pagination' in data && data.pagination !== undefined) {
+        return { data: result, pagination: data.pagination };
+      }
+
+      return result;
     }
 
     // Create a clean copy without metadata fields

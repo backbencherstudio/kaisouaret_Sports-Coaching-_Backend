@@ -304,7 +304,7 @@ export class UserListService {
     };
   }
 
-  async update(id: string, updateUserListDto: UpdateUserListDto, image?: Express.Multer.File) {
+  async updatedUser(id: string, updateUserListDto: UpdateUserListDto, image?: Express.Multer.File) {
     try {
       const user = await this.prisma.user.findFirst({
         where: {

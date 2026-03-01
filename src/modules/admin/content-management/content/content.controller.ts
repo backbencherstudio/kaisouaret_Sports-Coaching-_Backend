@@ -29,30 +29,30 @@ export class ContentController {
     return this.contentService.getSessionValidationList();
   }
 
-  @ApiOperation({ summary: 'Get content approval list (pending coach profile updates)' })
-  @Get('content-approval')
-  async getContentApprovalList() {
-    return this.contentService.getContentApprovalList();
-  }
+  // @ApiOperation({ summary: 'Get content approval list (pending coach profile updates)' })
+  // @Get('content-approval')
+  // async getContentApprovalList() {
+  //   return this.contentService.getContentApprovalList();
+  // }
 
-  @ApiOperation({ summary: 'Approve content (coach profile or user)' })
-  @ApiBody({ type: ApproveContentDto })
-  @Post('content-approval/approve')
-  async approveContent(@Body() approveContentDto: ApproveContentDto) {
-    return this.contentService.approveContent(
-      approveContentDto.id,
-      approveContentDto.type || 'coach_profile',
-    );
-  }
+  // @ApiOperation({ summary: 'Approve content (coach profile or user)' })
+  // @ApiBody({ type: ApproveContentDto })
+  // @Post('content-approval/approve')
+  // async approveContent(@Body() approveContentDto: ApproveContentDto) {
+  //   return this.contentService.approveContent(
+  //     approveContentDto.id,
+  //     approveContentDto.type || 'coach_profile',
+  //   );
+  // }
 
-  @ApiOperation({ summary: 'Reject content (coach profile or user)' })
-  @ApiBody({ type: RejectContentDto })
-  @Post('content-approval/reject')
-  async rejectContent(@Body() rejectContentDto: RejectContentDto) {
-    return this.contentService.rejectContent(
-      rejectContentDto.id,
-      rejectContentDto.type,
-      rejectContentDto.reason,
-    );
-  }
+  // @ApiOperation({ summary: 'Reject content (coach profile or user)' })
+  // @ApiBody({ type: RejectContentDto })
+  // @Post('content-approval/reject')
+  // async rejectContent(@Body() rejectContentDto: RejectContentDto) {
+  //   return this.contentService.rejectContent(
+  //     rejectContentDto.id,
+  //     rejectContentDto.type,
+  //     rejectContentDto.reason,
+  //   );
+  // }
 }

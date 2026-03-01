@@ -16,4 +16,12 @@ export class CreateMessageDto {
   @IsString()
   @ApiProperty()
   message?: string;
+
+  @IsOptional()
+  @ApiProperty({
+    type: 'string',
+    format: 'binary',
+    description: 'File attachment (image, video, document, etc.)',
+  })
+  file?: Express.Multer.File;
 }

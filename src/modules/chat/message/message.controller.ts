@@ -6,7 +6,10 @@ import {
   UseGuards,
   Get,
   Query,
+  Param,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { MessageService } from './message.service';
 import { CreateMessageDto } from './dto/create-message.dto';
 import { MessageGateway } from './message.gateway';
@@ -28,8 +31,9 @@ export class MessageController {
     private readonly messageGateway: MessageGateway,
   ) {}
 
-  @ApiOperation({ summary: 'Send message' })
+  @ApiOperation({ summary: 'Send message with optional file attachment' })
   @Post()
+  @UseInterceptors(FileInterceptor('file'))
   async create(
     @Req() req: Request,
     @Body() createMessageDto: CreateMessageDto,
@@ -66,18 +70,19 @@ export class MessageController {
   }
 
   @ApiOperation({ summary: 'Get all messages' })
-  @Get()
-  async findAll(
+  @Get('/:conversation_id/all')
+  async getAllMessages(
     @Req() req: Request,
-    @Query()
-    query: { conversation_id: string; limit?: number; cursor?: string },
+    @Param('conversation_id') conversation_id: string,
+    @Query() query: { limit?: number; cursor?: string },
   ) {
     const user_id = req.user.userId;
-    const conversation_id = query.conversation_id as string;
     const limit = Number(query.limit);
     const cursor = query.cursor as string;
+
+    console.log('conversation Id:', conversation_id);
     try {
-      const messages = await this.messageService.findAll({
+      const messages = await this.messageService.getAllMessages({
         user_id,
         conversation_id,
         limit,

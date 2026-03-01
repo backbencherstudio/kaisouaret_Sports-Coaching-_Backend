@@ -3,9 +3,10 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { BookingsService } from './bookings.service';
 import { BookingsController } from './bookings.controller';
 import { BookingsCleanupCron, BookingsPaymentExpiryCron } from '../../cron';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-  imports: [ScheduleModule.forRoot()],
+  imports: [ScheduleModule.forRoot(), NotificationsModule],
   controllers: [BookingsController],
   providers: [BookingsService, BookingsCleanupCron, BookingsPaymentExpiryCron],
   exports: [BookingsService],

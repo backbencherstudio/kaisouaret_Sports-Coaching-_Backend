@@ -45,12 +45,12 @@ export class UserListController {
     }),
   )
   @Patch(':id')
-  async update(
+  async updatedUser(
     @Param('id') id: string,
     @Body() updateUserListDto: UpdateUserListDto,
     @UploadedFile() image?: Express.Multer.File,
   ) {
-    return this.userListService.update(id, updateUserListDto, image);
+    return this.userListService.updatedUser(id, updateUserListDto, image);
   }
 
   @ApiOperation({ summary: 'Delete user by ID' })

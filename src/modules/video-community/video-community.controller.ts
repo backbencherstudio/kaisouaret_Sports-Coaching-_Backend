@@ -17,6 +17,7 @@ import { GetUser } from '../auth/decorators/get-user.decorator';
 import { CreatePostDto } from './dto/video-community-create.dto';
 import { memoryStorage } from 'multer';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { hasSubscribers, subscribe } from 'diagnostics_channel';
 
 @Controller('video-community')
 @ApiTags('video-community')
@@ -51,6 +52,7 @@ export class VideoCommunityController {
     summary: 'List video community posts (restricted by subscription)',
   })
   @Get('list')
+  @UseGuards(hasSubscribers)
   async list(
     @GetUser('userId') userId: string,
     @Query('page') page?: string,
