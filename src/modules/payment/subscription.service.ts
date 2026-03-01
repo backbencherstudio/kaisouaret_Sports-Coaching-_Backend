@@ -1,11 +1,20 @@
-import { Injectable, HttpException, HttpStatus, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  HttpException,
+  HttpStatus,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StripePayment } from '../../common/lib/Payment/stripe/StripePayment';
 import appConfig from '../../config/app.config';
+import { NotificationsService, NotificationType } from '../notifications/notifications.service';
 
 @Injectable()
 export class SubscriptionService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private notificationsService: NotificationsService,
+  ) {}
   async createOrUpdatePlan({
     plan_id,
     name,
@@ -122,14 +131,15 @@ export class SubscriptionService {
       }
 
       if (enforce_coach || enforce_athlete) {
-        const existingSubscription = await this.prisma.userSubscription.findFirst({
-          where: {
-            user_id,
-            status: 'active',
-            deleted_at: null,
-          },
-          select: { id: true },
-        });
+        const existingSubscription =
+          await this.prisma.userSubscription.findFirst({
+            where: {
+              user_id,
+              status: 'active',
+              deleted_at: null,
+            },
+            select: { id: true },
+          });
 
         if (existingSubscription) {
           throw new HttpException(
@@ -194,7 +204,8 @@ export class SubscriptionService {
           plan_id,
           registration_fee: addInvoiceItems.length > 0 ? '1' : '0',
         },
-        add_invoice_items: addInvoiceItems.length > 0 ? addInvoiceItems : undefined,
+        add_invoice_items:
+          addInvoiceItems.length > 0 ? addInvoiceItems : undefined,
       });
 
       return session;
@@ -254,6 +265,7 @@ export class SubscriptionService {
       },
     });
   }
+
   async getUserSubscription(user_id: string, kind?: string) {
     let normalizedKind: string | undefined;
     if (kind) {
@@ -272,11 +284,17 @@ export class SubscriptionService {
         plan: true,
       },
     });
+
+    if (!subscription) {
+      throw new NotFoundException('Active subscription not found');
+    }
+
     return {
       data: subscription,
       hasSubscription: !!subscription,
     };
   }
+
   async getAllPlans(kind?: string) {
     let normalizedKind: string | undefined;
     if (kind) {

@@ -6,10 +6,15 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { StripePayment } from '../../../common/lib/Payment/stripe/StripePayment';
 import * as crypto from 'crypto';
 import stripe from 'stripe';
+import { NotificationsService, NotificationType } from '../../notifications/notifications.service';
 
 @Controller('payment/stripe')
 export class StripeController {
-  constructor(private readonly stripeService: StripeService, private readonly prisma: PrismaService) { }
+  constructor(
+    private readonly stripeService: StripeService,
+    private readonly prisma: PrismaService,
+    private readonly notificationsService: NotificationsService,
+  ) {}
 
   @Post('webhook')
   async handleWebhook(
@@ -108,6 +113,37 @@ export class StripeController {
               stripe_subscription_id: subscription.id,
               current_period_end: normalizedPeriodEnd,
             });
+
+            // Send subscription started notification
+            if (session.metadata?.user_id && session.metadata?.plan_id) {
+              try {
+                const user = await this.prisma.user.findUnique({
+                  where: { id: session.metadata.user_id },
+                  select: { name: true },
+                });
+                const plan = await this.prisma.subscriptionPlan.findUnique({
+                  where: { id: session.metadata.plan_id },
+                  select: { name: true },
+                });
+
+                if (user && plan) {
+                  await this.notificationsService.sendNotification({
+                    type: NotificationType.SUBSCRIPTION_STARTED,
+                    recipient_id: session.metadata.user_id,
+                    entity_id: session.metadata.plan_id,
+                    variables: {
+                      user_name: user.name,
+                      plan_name: plan.name,
+                      expiry_date: normalizedPeriodEnd
+                        .toISOString()
+                        .split('T')[0],
+                    },
+                  });
+                }
+              } catch (error) {
+                console.error('Failed to send subscription started notification:', error);
+              }
+            }
             if (session.metadata?.user_id && plan?.kind === 'COACH') {
               await this.prisma.coachProfile.updateMany({
                 where: { user_id: session.metadata.user_id },
@@ -263,6 +299,7 @@ export class StripeController {
             const tx = await this.prisma.paymentTransaction.findFirst({
               where: { reference_number: capturableIntent.id },
             });
+
             if (tx?.type === 'booking') {
               const booking = await this.prisma.booking.findFirst({
                 where: { payment_transaction_id: tx.id },
@@ -280,6 +317,79 @@ export class StripeController {
                     token_expires_at: expires,
                   },
                 });
+              }
+
+              await this.prisma.paymentTransaction.update({
+                where: { id: tx.id },
+                data: {
+                  status: 'authorized',
+                  raw_status: capturableIntent.status,
+                },
+              });
+            }
+
+            if (tx?.type === 'custom_offer') {
+              const customOffer = await this.prisma.customOffer.findFirst({
+                where: { payment_transaction_id: tx.id },
+              });
+
+              if (customOffer) {
+                // Link custom offer payment transaction to booking (don't overwrite payment_transaction_id)
+                const booking = await this.prisma.booking.findUnique({
+                  where: { id: customOffer.booking_id },
+                  select: { id: true, status: true, validation_token: true },
+                });
+
+                if (booking && booking.status === 'CONFIRMED') {
+                  // Booking already has validation token, just update custom offer status
+                  await this.prisma.customOffer.update({
+                    where: { id: customOffer.id },
+                    data: {
+                      status: 'ACCEPTED',
+                    },
+                  });
+
+                  // Link custom offer payment to booking
+                  await this.prisma.booking.update({
+                    where: { id: customOffer.booking_id },
+                    data: {
+                      custom_offer_payment_transaction_id: tx.id,
+                    },
+                  });
+                } else {
+                  // Generate validation token for custom offer
+                  const token = crypto.randomInt(100000, 1000000).toString();
+                  const expires = new Date();
+                  expires.setMonth(expires.getMonth() + 1);
+
+                  await this.prisma.customOffer.update({
+                    where: { id: customOffer.id },
+                    data: {
+                      status: 'ACCEPTED',
+                    },
+                  });
+
+                  // Update booking with custom offer details and validation token
+                  // Only update these fields from the custom offer, keep original payment_transaction_id
+                  await this.prisma.booking.update({
+                    where: { id: customOffer.booking_id },
+                    data: {
+                      title: customOffer.title,
+                      appointment_date: customOffer.appointment_date,
+                      session_time: customOffer.session_time,
+                      session_time_display: customOffer.session_time_display,
+                      duration_minutes: customOffer.duration_minutes,
+                      number_of_members: customOffer.number_of_members,
+                      session_price: customOffer.session_price,
+                      total_amount: customOffer.total_amount,
+                      currency: customOffer.currency,
+                      status: 'CONFIRMED',
+                      validation_token: token,
+                      token_expires_at: expires,
+                      custom_offer_payment_transaction_id: tx.id,
+                    },
+                  });
+                }
               }
 
               await this.prisma.paymentTransaction.update({
@@ -396,6 +506,35 @@ export class StripeController {
                   }
                 } catch (err) {
                   console.error('Failed to mark custom offer accepted after payment:', err);
+                }
+              }
+
+              // Handle marketplace order confirmation
+              if (tx.type === 'marketplace') {
+                try {
+                  // Find order by payment_transaction_id
+                  const order = await this.prisma.marketplaceOrder.findFirst({
+                    where: { payment_transaction_id: tx.id },
+                  });
+
+                  if (order) {
+                    console.log(`Processing marketplace order confirmation for order: ${order.id}`);
+                    
+                    // Import marketplace service
+                    const { MarketplaceManagementService } = await import(
+                      '../../admin/marketplace-management/marketplace-management.service'
+                    );
+                    const marketplaceService = new MarketplaceManagementService(this.prisma);
+                    
+                    // Confirm order (updates stock, changes status to CONFIRMED)
+                    await marketplaceService.confirmOrderInternal(order.id);
+                    
+                    console.log(`Marketplace order ${order.id} confirmed successfully via webhook`);
+                  } else {
+                    console.warn(`No marketplace order found for payment transaction: ${tx.id}`);
+                  }
+                } catch (err) {
+                  console.error('Failed to confirm marketplace order after payment:', err);
                 }
               }
             }

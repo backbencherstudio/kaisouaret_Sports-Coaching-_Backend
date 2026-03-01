@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { MessageStatus } from '@prisma/client';
 import appConfig from '../../../config/app.config';
 import { CreateMessageDto } from './dto/create-message.dto';
@@ -11,7 +15,10 @@ import { UserRepository } from '../../../common/repository/user/user.repository'
 import { Role } from '../../../common/guard/role/role.enum';
 import { BookingsService } from '../../bookings/bookings.service';
 import { StripePayment } from '../../../common/lib/Payment/stripe/StripePayment';
-import { NotificationRepository } from '../../../common/repository/notification/notification.repository';
+import {
+  NotificationsService,
+  NotificationType,
+} from '../../notifications/notifications.service';
 import { BookingUpdateViaChatDto } from './dto/booking-update.dto';
 
 @Injectable()
@@ -20,6 +27,7 @@ export class MessageService {
     private prisma: PrismaService,
     private readonly messageGateway: MessageGateway,
     private readonly bookingsService: BookingsService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async create(user_id: string, createMessageDto: CreateMessageDto) {
@@ -46,10 +54,7 @@ export class MessageService {
       });
 
       if (!conversation) {
-        return {
-          success: false,
-          message: 'Conversation not found',
-        };
+        throw new NotFoundException('Conversation not found');
       }
 
       // check if receiver exists
@@ -60,10 +65,52 @@ export class MessageService {
       });
 
       if (!receiver) {
-        return {
-          success: false,
-          message: 'Receiver not found',
-        };
+        throw new NotFoundException('Receiver not found');
+      }
+
+      // Handle file upload
+      if (createMessageDto.file) {
+        try {
+          const fileName = `message_${Date.now()}_${createMessageDto.file.originalname}`;
+          const filePath = `${appConfig().storageUrl.attachment}/${fileName}`;
+          const savedPath = await SazedStorage.put(
+            filePath,
+            createMessageDto.file.buffer,
+          );
+
+          // Detect media format based on MIME type
+          const mimeType = createMessageDto.file.mimetype;
+          let format = 'document'; // default
+          if (mimeType.startsWith('image/')) {
+            format = 'image';
+          } else if (mimeType.startsWith('video/')) {
+            format = 'video';
+          } else if (mimeType.startsWith('audio/')) {
+            format = 'audio';
+          }
+
+          const attachmentData: any = {
+            name: createMessageDto.file.originalname,
+            type: mimeType,
+            size: createMessageDto.file.size,
+            file: savedPath,
+            file_alt: createMessageDto.file.originalname,
+            format: format,
+          };
+
+          // Note: Video/image metadata extraction (duration, width, height, codec, bitrate)
+          // requires ffprobe or sharp libraries which should be added for production use.
+          // The client can optionally send metadata in the request body for now.
+
+          const attachment = await this.prisma.attachment.create({
+            data: attachmentData,
+          });
+
+          data.attachment_id = attachment.id;
+        } catch (error) {
+          console.error('Error uploading file:', error);
+          // Continue with message creation even if file upload fails
+        }
       }
 
       const message = await this.prisma.message.create({
@@ -106,7 +153,7 @@ export class MessageService {
     }
   }
 
-  async findAll({
+  async getAllMessages({
     user_id,
     conversation_id,
     limit = 20,
@@ -138,10 +185,7 @@ export class MessageService {
       });
 
       if (!conversation) {
-        return {
-          success: false,
-          message: 'Conversation not found',
-        };
+        throw new NotFoundException('Conversation not found');
       }
 
       const paginationData = {};
@@ -215,9 +259,59 @@ export class MessageService {
         }
       }
 
+      // Fetch custom offers for messages that contain custom offer data
+      const messagesWithOffers = await Promise.all(
+        messages.map(async (msg: any) => {
+          if (msg.message && msg.message.includes('Custom offer sent:')) {
+            // Find the custom offer sent by this sender around this time
+            const offer = await this.prisma.customOffer.findFirst({
+              where: {
+                coach_id: msg.sender.id,
+                athlete_id: msg.receiver.id,
+                created_at: {
+                  gte: new Date(new Date(msg.created_at).getTime() - 5000), // within 5 seconds before message
+                  lte: new Date(new Date(msg.created_at).getTime() + 5000),
+                },
+              },
+            });
+
+            if (offer) {
+              return {
+                ...msg,
+                custom_offer: {
+                  id: offer.id,
+                  booking_id: offer.booking_id,
+                  title: offer.title,
+                  appointment_date: offer.appointment_date,
+                  session_time: offer.session_time,
+                  session_time_display: offer.session_time_display,
+                  duration_minutes: offer.duration_minutes,
+                  number_of_members: offer.number_of_members,
+                  pricing: {
+                    base_price_per_session: offer.session_price
+                      ? Number(offer.session_price)
+                      : 0,
+                    paid_amount: offer.paid_amount
+                      ? Number(offer.paid_amount)
+                      : 0,
+                    due_amount: offer.due_amount ? Number(offer.due_amount) : 0,
+                    total_amount: offer.total_amount
+                      ? Number(offer.total_amount)
+                      : 0,
+                    currency: offer.currency || 'USD',
+                  },
+                  status: offer.status,
+                },
+              };
+            }
+          }
+          return msg;
+        }),
+      );
+
       return {
         success: true,
-        data: messages,
+        data: messagesWithOffers,
       };
     } catch (error) {
       return {
@@ -262,8 +356,12 @@ export class MessageService {
         throw new NotFoundException('Booking not found');
 
       const pricing = (offerResult?.data?.pricing || {}) as any;
-      const offerTitle = offerResult?.data?.title || customOfferDto.title || 'Group Session';
-      const memberCount = offerResult?.data?.number_of_members || customOfferDto.number_of_members || 1;
+      const offerTitle =
+        offerResult?.data?.title || customOfferDto.title || 'Group Session';
+      const memberCount =
+        offerResult?.data?.number_of_members ||
+        customOfferDto.number_of_members ||
+        1;
       const totalAmount = pricing?.total_amount ?? 0;
       const dueAmount = pricing?.due_amount ?? 0;
 
@@ -282,17 +380,28 @@ export class MessageService {
         data: { updated_at: DateHelper.now() },
       });
 
-      const recipientSocketId = this.messageGateway.clients.get(booking.user_id);
+      const recipientSocketId = this.messageGateway.clients.get(
+        booking.user_id,
+      );
       if (recipientSocketId) {
-        this.messageGateway.server
-          .to(recipientSocketId)
-          .emit('message', { from: coachId, data: message });
+        this.messageGateway.server.to(recipientSocketId).emit('message', {
+          from: coachId,
+          data: {
+            ...message,
+            custom_offer: offerResult?.data,
+          },
+        });
       }
 
       return {
         success: true,
         message: 'Custom offer sent successfully',
-        data: offerResult?.data,
+        data: {
+          message_id: message.id,
+          conversation_id: message.conversation_id,
+          booking_id: customOfferDto.booking_id,
+          custom_offer: offerResult?.data,
+        },
       };
     } catch (error) {
       return {
@@ -304,12 +413,19 @@ export class MessageService {
 
   async acceptCustomOffer(
     athleteId: string,
-    body: { booking_id: string; conversation_id: string },
+    body: {
+      booking_id: string;
+      conversation_id: string;
+      custom_offer_id: string;
+    },
   ) {
     if (!athleteId) throw new BadRequestException('Athlete ID is required');
-    if (!body?.booking_id) throw new BadRequestException('Booking ID is required');
+    if (!body?.booking_id)
+      throw new BadRequestException('Booking ID is required');
     if (!body?.conversation_id)
       throw new BadRequestException('Conversation ID is required');
+    if (!body?.custom_offer_id)
+      throw new BadRequestException('Custom offer ID is required');
 
     const booking = await this.prisma.booking.findFirst({
       where: { id: body.booking_id, user_id: athleteId },
@@ -320,11 +436,11 @@ export class MessageService {
 
     const offer = await this.prisma.customOffer.findFirst({
       where: {
+        id: body.custom_offer_id,
         booking_id: booking.id,
         athlete_id: athleteId,
         status: 'PENDING',
       },
-      orderBy: { created_at: 'desc' },
     });
 
     if (!offer) throw new BadRequestException('No pending custom offer found');
@@ -374,19 +490,31 @@ export class MessageService {
         data: { updated_at: DateHelper.now() },
       });
 
-      const recipientSocketId = this.messageGateway.clients.get(booking.coach_id);
+      const recipientSocketId = this.messageGateway.clients.get(
+        booking.coach_id,
+      );
       if (recipientSocketId) {
         this.messageGateway.server
           .to(recipientSocketId)
           .emit('message', { from: athleteId, data: message });
       }
 
-      await NotificationRepository.createNotification({
-        receiver_id: booking.coach_id,
+      await this.notificationsService.sendNotification({
+        type: NotificationType.CUSTOM_OFFER_ACCEPTED,
+        recipient_id: booking.coach_id,
         sender_id: athleteId,
-        text: 'Custom offer accepted (no payment required).',
-        type: 'booking',
         entity_id: booking.id,
+        variables: {
+          coach_name:
+            (
+              await this.prisma.user.findUnique({
+                where: { id: booking.coach_id },
+              })
+            )?.name || 'Coach',
+          user_name:
+            (await this.prisma.user.findUnique({ where: { id: athleteId } }))
+              ?.name || 'Athlete',
+        },
       });
 
       return {
@@ -417,7 +545,7 @@ export class MessageService {
     }
 
     const currency = offer.currency || booking.currency || 'USD';
-    const paymentIntent = await StripePayment.createPaymentIntent({
+    const paymentIntent = await StripePayment.createManualCapturePaymentIntent({
       amount: dueAmount,
       currency,
       customer_id: customerId,
@@ -450,6 +578,23 @@ export class MessageService {
       },
     });
 
+    // Update booking with custom offer details and link payment transaction
+    await this.prisma.booking.update({
+      where: { id: booking.id },
+      data: {
+        title: offer.title,
+        appointment_date: offer.appointment_date,
+        session_time: offer.session_time,
+        session_time_display: offer.session_time_display,
+        duration_minutes: offer.duration_minutes,
+        number_of_members: offer.number_of_members,
+        session_price: offer.session_price,
+        total_amount: offer.total_amount,
+        currency: offer.currency || booking.currency || 'USD',
+        custom_offer_payment_transaction_id: tx.id,
+      },
+    });
+
     const message = await this.prisma.message.create({
       data: {
         conversation_id: body.conversation_id,
@@ -472,12 +617,23 @@ export class MessageService {
         .emit('message', { from: athleteId, data: message });
     }
 
-    await NotificationRepository.createNotification({
-      receiver_id: booking.coach_id,
+    await this.notificationsService.sendNotification({
+      type: NotificationType.CUSTOM_OFFER_ACCEPTED,
+      recipient_id: booking.coach_id,
       sender_id: athleteId,
-      text: `Custom offer accepted. Payment pending: $${dueAmount}.`,
-      type: 'booking',
       entity_id: booking.id,
+      variables: {
+        coach_name:
+          (
+            await this.prisma.user.findUnique({
+              where: { id: booking.coach_id },
+            })
+          )?.name || 'Coach',
+        user_name:
+          (await this.prisma.user.findUnique({ where: { id: athleteId } }))
+            ?.name || 'Athlete',
+        payment_amount: String(dueAmount),
+      },
     });
 
     return {
@@ -494,12 +650,19 @@ export class MessageService {
 
   async declineCustomOffer(
     athleteId: string,
-    body: { booking_id: string; conversation_id: string },
+    body: {
+      booking_id: string;
+      conversation_id: string;
+      custom_offer_id: string;
+    },
   ) {
     if (!athleteId) throw new BadRequestException('Athlete ID is required');
-    if (!body?.booking_id) throw new BadRequestException('Booking ID is required');
+    if (!body?.booking_id)
+      throw new BadRequestException('Booking ID is required');
     if (!body?.conversation_id)
       throw new BadRequestException('Conversation ID is required');
+    if (!body?.custom_offer_id)
+      throw new BadRequestException('Custom offer ID is required');
 
     const booking = await this.prisma.booking.findFirst({
       where: { id: body.booking_id, user_id: athleteId },
@@ -510,11 +673,11 @@ export class MessageService {
 
     const offer = await this.prisma.customOffer.findFirst({
       where: {
+        id: body.custom_offer_id,
         booking_id: booking.id,
         athlete_id: athleteId,
         status: 'PENDING',
       },
-      orderBy: { created_at: 'desc' },
     });
 
     if (!offer) throw new BadRequestException('No pending custom offer found');
@@ -549,12 +712,22 @@ export class MessageService {
         .emit('message', { from: athleteId, data: message });
     }
 
-    await NotificationRepository.createNotification({
-      receiver_id: booking.coach_id,
+    await this.notificationsService.sendNotification({
+      type: NotificationType.CUSTOM_OFFER_DECLINED,
+      recipient_id: booking.coach_id,
       sender_id: athleteId,
-      text: 'Custom offer declined.',
-      type: 'booking',
       entity_id: booking.id,
+      variables: {
+        coach_name:
+          (
+            await this.prisma.user.findUnique({
+              where: { id: booking.coach_id },
+            })
+          )?.name || 'Coach',
+        user_name:
+          (await this.prisma.user.findUnique({ where: { id: athleteId } }))
+            ?.name || 'Athlete',
+      },
     });
 
     return {
@@ -564,12 +737,10 @@ export class MessageService {
     };
   }
 
-  async updateBookingViaChat(
-    coachId: string,
-    body: BookingUpdateViaChatDto,
-  ) {
+  async updateBookingViaChat(coachId: string, body: BookingUpdateViaChatDto) {
     if (!coachId) throw new BadRequestException('Coach ID is required');
-    if (!body?.booking_id) throw new BadRequestException('Booking ID is required');
+    if (!body?.booking_id)
+      throw new BadRequestException('Booking ID is required');
     if (!body?.conversation_id)
       throw new BadRequestException('Conversation ID is required');
 

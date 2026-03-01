@@ -12,6 +12,8 @@ import { StripeModule } from '../payment/stripe/stripe.module';
 import { BookingListModule } from './booking_management/booking_list/booking_list.module';
 import { ContentModule } from './content-management/content/content.module';
 import { MarketplaceManagementModule } from './marketplace-management/marketplace-management.module';
+import { MapModule } from '../map/map.module';
+import { BadgeManagementModule } from './badge-management/badge-management.module';
 
 @Module({
   imports: [
@@ -27,7 +29,9 @@ import { MarketplaceManagementModule } from './marketplace-management/marketplac
     BookingListModule,
     BookingListModule,
     ContentModule,
-    MarketplaceManagementModule
+    MarketplaceManagementModule,
+    MapModule,
+    BadgeManagementModule
   ],
   controllers: [SubscriptionPlansController],
 })

@@ -3,7 +3,7 @@ export class CreateMarketplaceManagementDto {
   categoryId?: string;
   price?: number | string;
   stockQuantity?: number | string;
-  brandSeller?: string;
+  brandName?: string;
   discount?: number | string;
   description?: string;
   isActive?: boolean | string;

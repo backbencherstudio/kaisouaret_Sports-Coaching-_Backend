@@ -78,4 +78,26 @@ export class MailService {
       console.log(error);
     }
   }
+
+  async sendNotification(params: {
+    to: string;
+    subject: string;
+    template: string;
+    context: Record<string, any>;
+  }) {
+    try {
+      const from = `${process.env.APP_NAME} <${appConfig().mail.from}>`;
+
+      // add to queue
+      await this.queue.add('sendNotification', {
+        to: params.to,
+        from: from,
+        subject: params.subject,
+        template: params.template,
+        context: params.context,
+      });
+    } catch (error) {
+      console.log(error);
+    }
+  }
 }

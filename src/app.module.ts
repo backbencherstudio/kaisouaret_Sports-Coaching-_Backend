@@ -26,6 +26,7 @@ import { ReviewsModule } from './modules/reviews/reviews.module';
 import { GoalsModule } from './modules/goals/goals.module';
 import { CoachHomeModule } from './modules/coach-home/coach-home.module';
 import { VideoCommunityModule } from './modules/video-community/video-community.module';
+import { MapModule } from './modules/map/map.module';
 
 @Module({
   imports: [
@@ -87,6 +88,7 @@ import { VideoCommunityModule } from './modules/video-community/video-community.
     GoalsModule,
     CoachHomeModule,
     VideoCommunityModule,
+    MapModule,
   ],
   controllers: [AppController],
   providers: [

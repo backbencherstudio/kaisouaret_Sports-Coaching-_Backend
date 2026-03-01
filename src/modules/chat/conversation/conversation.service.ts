@@ -179,9 +179,15 @@ export class ConversationService {
     }
   }
 
-  async findAll() {
+  async getAllConversation(userId: string) {
     try {
       const conversations = await this.prisma.conversation.findMany({
+        where: {
+          OR: [
+            { creator_id: userId },
+            { participant_id: userId },
+          ],
+        },
         orderBy: {
           updated_at: 'desc',
         },

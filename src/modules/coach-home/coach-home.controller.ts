@@ -50,4 +50,20 @@ export class CoachHomeController {
   async performance(@GetUser('userId') coachId: string) {
     return this.coachHomeService.getPerformance(coachId);
   }
+
+  @ApiOperation({ summary: 'Get coach languages & experience' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Get('languages-experience')
+  async languagesExperience(@GetUser('userId') coachId: string) {
+    return this.coachHomeService.getLanguagesAndExperience(coachId);
+  }
+
+  @ApiOperation({ summary: 'Get coach total revenue & session count' })
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Get('total-revenue-session-count')
+  async totalRevenue(@GetUser('userId') coachId: string) {
+    return this.coachHomeService.getTotalRevenue(coachId);
+  }
 }

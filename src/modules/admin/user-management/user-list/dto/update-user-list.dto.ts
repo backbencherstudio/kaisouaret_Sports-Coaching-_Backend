@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsOptional, IsString, IsInt, Min, Max, IsEmail, IsEnum } from 'class-validator';
+import { Type } from 'class-transformer';
 import { UserStatus } from './query-user-list.dto';
 
 export class UpdateUserListDto {
@@ -19,10 +20,10 @@ export class UpdateUserListDto {
   phone_number?: string;
 
   @IsOptional()
-  @IsEnum([UserStatus.ACTIVE, UserStatus.BLOCKED])
+  @IsEnum(UserStatus, { message: 'status must be one of: active, blocked' })
   @ApiProperty({ 
     required: false, 
-    enum: [UserStatus.ACTIVE, UserStatus.BLOCKED],
+    enum: ['active', 'blocked'],
     description: 'User status (active or blocked)' 
   })
   status?: UserStatus;
@@ -48,6 +49,7 @@ export class UpdateUserListDto {
   gender?: string;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(150)

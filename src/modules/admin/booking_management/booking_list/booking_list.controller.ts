@@ -79,11 +79,11 @@ export class BookingListController {
     return this.bookingListService.checkNotificationStatus(eventId);
   }
 
-  @ApiOperation({ summary: 'Get notifications for a specific user (for recipients to check)' })
-  @Get('user-notifications/:userId')
-  async getUserNotifications(@Param('userId') userId: string) {
-    return this.bookingListService.getUserNotifications(userId);
-  }
+  // @ApiOperation({ summary: 'Get notifications for a specific user (for recipients to check)' })
+  // @Get('user-notifications/:userId')
+  // async getUserNotifications(@Param('userId') userId: string) {
+  //   return this.bookingListService.getUserNotifications(userId);
+  // }
 
   @ApiOperation({ summary: 'Export booking data' })
   @Get('export')

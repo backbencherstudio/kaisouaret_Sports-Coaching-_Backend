@@ -46,70 +46,148 @@ export class AuthController {
 
       return response;
     } catch (error) {
-      return {
-        success: false,
-        message: 'Failed to fetch user details',
-      };
+      // Re-throw HttpException to preserve status codes
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        error?.message ?? 'Failed to fetch user details',
+        HttpStatus.BAD_REQUEST,
+      );
     }
   }
 
-  @ApiOperation({ summary: 'Register a user' })
-  @Post('register')
+  // @ApiOperation({ summary: 'Register a user (legacy - use two-step flow instead)' })
+  // @Post('register')
+  // @UseInterceptors(
+  //   FileInterceptor('avatar', {
+  //     storage: memoryStorage(),
+  //   }),
+  // )
+  // async create(
+  //   @Body() data: CreateUserDto,
+
+  //   @UploadedFile() avatar?: Express.Multer.File,
+  // ) {
+  //   try {
+  //     const name = data.name;
+  //     const email = data.email;
+  //     const password = data.password;
+  //     const location = data.location;
+  //     const latitude = data.latitude;
+  //     const longitude = data.longitude;
+  //     const type = data.type;
+  //     const phone_number = data.phone_number;
+  //     const date_of_birth = data.date_of_birth;
+  //     const bio = data.bio;
+  //     const avatarFile = avatar;
+
+  //     if (!name) {
+  //       throw new HttpException('Name not provided', HttpStatus.UNAUTHORIZED);
+  //     }
+
+  //     if (!email) {
+  //       throw new HttpException('Email not provided', HttpStatus.UNAUTHORIZED);
+  //     }
+  //     if (!password) {
+  //       throw new HttpException(
+  //         'Password not provided',
+  //         HttpStatus.UNAUTHORIZED,
+  //       );
+  //     }
+
+  //     console.log('avatar in controller', avatar);
+
+  //     const response = await this.authService.register({
+  //       name: name,
+  //       email: email,
+  //       phone_number: phone_number,
+  //       location: location,
+  //       latitude: latitude,
+  //       longitude: longitude,
+  //       date_of_birth: date_of_birth,
+  //       password: password,
+  //       bio: bio,
+  //       type: type,
+  //       avatar: avatarFile,
+  //     });
+
+  //     return response;
+  //   } catch (error) {
+  //     if (error instanceof HttpException) {
+  //       throw error;
+  //     }
+  //     throw new HttpException(error?.message, HttpStatus.BAD_REQUEST);
+  //   }
+  // }
+
+  @ApiOperation({ summary: 'Step 1: Request registration and send OTP' })
+  @Post('register/request')
   @UseInterceptors(
     FileInterceptor('avatar', {
       storage: memoryStorage(),
     }),
   )
-  async create(
+  async requestRegistration(
     @Body() data: CreateUserDto,
-
     @UploadedFile() avatar?: Express.Multer.File,
   ) {
     try {
-      const name = data.name;
-      const email = data.email;
-      const location = data.location;
-      const password = data.password;
-      const type = data.type;
-      const phone_number = data.phone_number;
-      const date_of_birth = data.date_of_birth;
-      const bio = data.bio;
-      const avatarFile = avatar;
-
-      if (!name) {
-        throw new HttpException('Name not provided', HttpStatus.UNAUTHORIZED);
+      if (!data.name) {
+        throw new HttpException('Name not provided', HttpStatus.BAD_REQUEST);
+      }
+      if (!data.email) {
+        throw new HttpException('Email not provided', HttpStatus.BAD_REQUEST);
+      }
+      if (!data.password) {
+        throw new HttpException('Password not provided', HttpStatus.BAD_REQUEST);
       }
 
-      if (!email) {
-        throw new HttpException('Email not provided', HttpStatus.UNAUTHORIZED);
-      }
-      if (!password) {
-        throw new HttpException(
-          'Password not provided',
-          HttpStatus.UNAUTHORIZED,
-        );
-      }
-
-      console.log('avatar in controller', avatar);
-
-      const response = await this.authService.register({
-        name: name,
-        email: email,
-        phone_number: phone_number,
-        location: location,
-        date_of_birth: date_of_birth,
-        password: password,
-        bio: bio,
-        type: type,
-        avatar: avatarFile,
+      const response = await this.authService.requestRegistration({
+        name: data.name,
+        email: data.email,
+        phone_number: data.phone_number,
+        location: data.location,
+        latitude: data.latitude,
+        longitude: data.longitude,
+        date_of_birth: data.date_of_birth,
+        password: data.password,
+        bio: data.bio,
+        type: data.type,
+        avatar: avatar,
       });
 
       return response;
     } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(error?.message, HttpStatus.BAD_REQUEST);
+    }
+  }
+
+  @ApiOperation({ summary: 'Step 2: Verify OTP and complete registration' })
+  @Post('register/verify')
+  async verifyAndRegister(@Body() data: { email: string; otp: string }) {
+    try {
+      if (!data.email) {
+        throw new HttpException('Email not provided', HttpStatus.BAD_REQUEST);
+      }
+      if (!data.otp) {
+        throw new HttpException('OTP not provided', HttpStatus.BAD_REQUEST);
+      }
+
+      const response = await this.authService.verifyAndRegister({
+        email: data.email,
+        otp: data.otp,
+      });
+
+      return response;
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(error?.message, HttpStatus.BAD_REQUEST);
     }
   }
 
@@ -138,10 +216,14 @@ export class AuthController {
 
       res.json(response);
     } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
+      // Re-throw HttpException to preserve status codes
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        error?.message ?? 'Failed to login',
+        HttpStatus.BAD_REQUEST,
+      );
     }
   }
 
@@ -157,10 +239,14 @@ export class AuthController {
 
       return response;
     } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
+      // Re-throw HttpException to preserve status codes
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        error?.message ?? 'Failed to setup profile',
+        HttpStatus.BAD_REQUEST,
+      );
     }
   }
 
@@ -182,10 +268,14 @@ export class AuthController {
 
       return response;
     } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
+      // Re-throw HttpException to preserve status codes
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        error?.message ?? 'Failed to refresh token',
+        HttpStatus.BAD_REQUEST,
+      );
     }
   }
 
@@ -198,10 +288,14 @@ export class AuthController {
       const response = await this.authService.revokeRefreshToken(userId);
       return response;
     } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
+      // Re-throw HttpException to preserve status codes
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        error?.message ?? 'Failed to logout',
+        HttpStatus.BAD_REQUEST,
+      );
     }
   }
 
@@ -279,10 +373,14 @@ export class AuthController {
       console.log('response', response);
       return response;
     } catch (error) {
-      return {
-        success: false,
-        message: 'Failed to update user',
-      };
+      // Re-throw HttpException to preserve status codes
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        error?.message ?? 'Failed to update user',
+        HttpStatus.BAD_REQUEST,
+      );
     }
   }
 
@@ -298,10 +396,14 @@ export class AuthController {
       }
       return await this.authService.forgotPassword(email);
     } catch (error) {
-      return {
-        success: false,
-        message: 'Something went wrong',
-      };
+      // Re-throw HttpException to preserve status codes
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        error?.message ?? 'Failed to send password reset email',
+        HttpStatus.BAD_REQUEST,
+      );
     }
   }
 
@@ -323,10 +425,14 @@ export class AuthController {
         token: token,
       });
     } catch (error) {
-      return {
-        success: false,
-        message: 'Failed to verify email',
-      };
+      // Re-throw HttpException to preserve status codes
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        error?.message ?? 'Failed to verify email',
+        HttpStatus.BAD_REQUEST,
+      );
     }
   }
 
@@ -341,10 +447,14 @@ export class AuthController {
       }
       return await this.authService.resendVerificationEmail(email);
     } catch (error) {
-      return {
-        success: false,
-        message: 'Failed to resend verification email',
-      };
+      // Re-throw HttpException to preserve status codes
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        error?.message ?? 'Failed to resend verification email',
+        HttpStatus.BAD_REQUEST,
+      );
     }
   }
 
@@ -376,10 +486,14 @@ export class AuthController {
         password: password,
       });
     } catch (error) {
-      return {
-        success: false,
-        message: 'Something went wrong',
-      };
+      // Re-throw HttpException to preserve status codes
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        error?.message ?? 'Failed to reset password',
+        HttpStatus.BAD_REQUEST,
+      );
     }
   }
 
@@ -420,10 +534,14 @@ export class AuthController {
         newPassword: newPassword,
       });
     } catch (error) {
-      return {
-        success: false,
-        message: 'Failed to change password',
-      };
+      // Re-throw HttpException to preserve status codes
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        error?.message ?? 'Failed to change password',
+        HttpStatus.BAD_REQUEST,
+      );
     }
   }
 
@@ -446,10 +564,14 @@ export class AuthController {
       }
       return await this.authService.requestEmailChange(user_id, email);
     } catch (error) {
-      return {
-        success: false,
-        message: 'Something went wrong',
-      };
+      // Re-throw HttpException to preserve status codes
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        error?.message ?? 'Failed to request email change',
+        HttpStatus.BAD_REQUEST,
+      );
     }
   }
 
@@ -478,10 +600,14 @@ export class AuthController {
         token: token,
       });
     } catch (error) {
-      return {
-        success: false,
-        message: 'Something went wrong',
-      };
+      // Re-throw HttpException to preserve status codes
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        error?.message ?? 'Failed to change email',
+        HttpStatus.BAD_REQUEST,
+      );
     }
   }
   // -------end change email address------
@@ -496,10 +622,14 @@ export class AuthController {
       const user_id = req.user.userId;
       return await this.authService.generate2FASecret(user_id);
     } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
+      // Re-throw HttpException to preserve status codes
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        error?.message ?? 'Failed to generate 2FA secret',
+        HttpStatus.BAD_REQUEST,
+      );
     }
   }
 
@@ -513,10 +643,14 @@ export class AuthController {
       const token = data.token;
       return await this.authService.verify2FA(user_id, token);
     } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
+      // Re-throw HttpException to preserve status codes
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        error?.message ?? 'Failed to verify 2FA',
+        HttpStatus.BAD_REQUEST,
+      );
     }
   }
 
@@ -529,10 +663,14 @@ export class AuthController {
       const user_id = req.user.userId;
       return await this.authService.enable2FA(user_id);
     } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
+      // Re-throw HttpException to preserve status codes
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        error?.message ?? 'Failed to enable 2FA',
+        HttpStatus.BAD_REQUEST,
+      );
     }
   }
 
@@ -545,10 +683,14 @@ export class AuthController {
       const user_id = req.user.userId;
       return await this.authService.disable2FA(user_id);
     } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
+      // Re-throw HttpException to preserve status codes
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        error?.message ?? 'Failed to disable 2FA',
+        HttpStatus.BAD_REQUEST,
+      );
     }
   }
   // --------- end 2FA ---------

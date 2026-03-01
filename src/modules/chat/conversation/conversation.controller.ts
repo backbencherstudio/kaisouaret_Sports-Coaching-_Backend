@@ -47,11 +47,11 @@ export class ConversationController {
   }
 
   // @Roles(Role.ADMIN)
-  @ApiOperation({ summary: 'Get all conversations' })
-  @Get()
-  async findAll() {
+  @ApiOperation({ summary: 'Get all conversations for authenticated user' })
+  @Get('all')
+  async getAllConversation(@GetUser('userId') userId: string) {
     try {
-      const conversations = await this.conversationService.findAll();
+      const conversations = await this.conversationService.getAllConversation(userId);
       return conversations;
     } catch (error) {
       return {

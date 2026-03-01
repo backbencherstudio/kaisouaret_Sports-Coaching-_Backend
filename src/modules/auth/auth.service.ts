@@ -1,5 +1,11 @@
 // external imports
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRedis } from '@nestjs-modules/ioredis';
 import Redis from 'ioredis';
@@ -15,6 +21,10 @@ import { SazedStorage } from '../../common/lib/Disk/SazedStorage';
 import { DateHelper } from '../../common/helper/date.helper';
 import { StripePayment } from '../../common/lib/Payment/stripe/StripePayment';
 import { StringHelper } from '../../common/helper/string.helper';
+import {
+  NotificationsService,
+  NotificationType,
+} from '../notifications/notifications.service';
 
 @Injectable()
 export class AuthService {
@@ -23,6 +33,7 @@ export class AuthService {
     private prisma: PrismaService,
     private mailService: MailService,
     @InjectRedis() private readonly redis: Redis,
+    private notificationsService: NotificationsService,
   ) {}
 
   async me(userId: string) {
@@ -45,6 +56,8 @@ export class AuthService {
           updated_at: true,
           email_verified_at: true,
           location: true,
+          latitude: true,
+          longitude: true,
           bio: true,
           objectives: true,
           goals: true,
@@ -74,16 +87,16 @@ export class AuthService {
               subscription_provider: true,
               subscription_reference: true,
               rgpd_laws_agreement: true,
+              location: true,
+              latitude: true,
+              longitude: true,
             },
           },
         },
       });
 
       if (!user) {
-        return {
-          success: false,
-          message: 'User not found',
-        };
+        throw new NotFoundException('User not found');
       }
 
       const now = new Date();
@@ -107,33 +120,289 @@ export class AuthService {
         status: activeSubscription?.status || null,
       };
 
-      if (user) {
-        return {
-          success: true,
-          data: {
-            ...user,
-            subscription: subscriptionInfo,
-          },
-        };
-      } else {
-        return {
-          success: false,
-          message: 'User not found',
-        };
-      }
-    } catch (error) {
       return {
-        success: false,
-        message: error.message,
+        success: true,
+        data: {
+          ...user,
+          subscription: subscriptionInfo,
+        },
       };
+    } catch (error) {
+      // Re-throw NestJS exceptions
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      // Throw generic error
+      throw new BadRequestException(error?.message ?? 'Failed to fetch user');
     }
   }
 
+  /**
+   * Step 1: Request registration - sends OTP, stores data temporarily
+   */
+  async requestRegistration({
+    name,
+    email,
+    phone_number,
+    location,
+    latitude,
+    longitude,
+    date_of_birth,
+    password,
+    bio,
+    type,
+    avatar,
+  }: {
+    name: string;
+    email: string;
+    password: string;
+    location?: string;
+    latitude?: number;
+    longitude?: number;
+    phone_number?: string;
+    type?: string;
+    bio?: string;
+    date_of_birth?: string;
+    avatar?: Express.Multer.File;
+  }) {
+    try {
+      // Check if email already exists
+      const userEmailExist = await UserRepository.exist({
+        field: 'email',
+        value: String(email),
+      });
+
+      if (userEmailExist) {
+        throw new ConflictException('Email already exists');
+      }
+
+      const emailAlreadyExistInDB = await this.prisma.user.findUnique({
+        where: { email },
+      });
+
+      if (emailAlreadyExistInDB) {
+        throw new ConflictException('Email already exists');
+      }
+
+      // Generate OTP
+      const otp = Math.floor(1000 + Math.random() * 9000).toString();
+
+      // Store registration data temporarily in Redis (expires in 15 minutes)
+      const registrationData = {
+        name,
+        email,
+        phone_number,
+        location,
+        latitude,
+        longitude,
+        date_of_birth,
+        password,
+        bio,
+        type,
+        avatarBuffer: avatar?.buffer ? avatar.buffer.toString('base64') : null,
+        avatarOriginalName: avatar?.originalname || null,
+      };
+
+      console.log('Storing registration data for:', email);
+
+      await this.redis.setex(
+        `registration_pending:${email}`,
+        900, // 15 minutes
+        JSON.stringify(registrationData),
+      );
+
+      // Store OTP separately
+      await this.redis.setex(
+        `registration_otp:${email}`,
+        900, // 15 minutes
+        otp,
+      );
+
+      console.log('OTP generated and stored:', otp);
+
+      // Send OTP to email
+      await this.mailService.sendOtpCodeToEmail({
+        email,
+        name,
+        otp,
+      });
+
+      return {
+        success: true,
+        message: 'We have sent a verification code to your email',
+        otp, // For testing only - remove in production
+      };
+    } catch (error) {
+      const details = error?.message ?? 'Registration request failed';
+      throw new BadRequestException(details);
+    }
+  }
+
+  /**
+   * Step 2: Verify OTP and complete registration
+   */
+  async verifyAndRegister({ email, otp }: { email: string; otp: string }) {
+    try {
+      // Verify OTP
+      const storedOtp = await this.redis.get(`registration_otp:${email}`);
+
+      if (!storedOtp || storedOtp !== otp) {
+        throw new BadRequestException('Invalid or expired OTP');
+      }
+
+      // Get registration data
+      const registrationDataJson = await this.redis.get(
+        `registration_pending:${email}`,
+      );
+
+      if (!registrationDataJson) {
+        throw new BadRequestException(
+          'Registration data expired. Please register again',
+        );
+      }
+
+      const registrationData = JSON.parse(registrationDataJson);
+
+      // Upload avatar if exists
+      let mediaUrl: string | undefined = undefined;
+
+      if (
+        registrationData.avatarBuffer &&
+        registrationData.avatarOriginalName
+      ) {
+        try {
+          const buffer = Buffer.from(registrationData.avatarBuffer, 'base64');
+          const safeName = registrationData.avatarOriginalName
+            .toLowerCase()
+            .replace(/[^a-z0-9.\s-_]/g, '')
+            .replace(/\s+/g, '-')
+            .replace(/-+/g, '-');
+
+          const fileName = `${StringHelper.randomString()}-${safeName}`;
+
+          await SazedStorage.put(
+            `${appConfig().storageUrl.avatar}/${fileName}`,
+            buffer,
+          );
+
+          mediaUrl = SazedStorage.url(
+            encodeURI(`${appConfig().storageUrl.avatar}/${fileName}`),
+          );
+        } catch (error) {
+          console.error('Failed to upload avatar:', error);
+        }
+      }
+
+      // Create user
+      const user = await UserRepository.createUser({
+        name: registrationData.name,
+        email: registrationData.email,
+        phone_number: registrationData.phone_number,
+        location: registrationData.location,
+        latitude: registrationData.latitude,
+        longitude: registrationData.longitude,
+        bio: registrationData.bio,
+        date_of_birth: registrationData.date_of_birth
+          ? DateHelper.format(registrationData.date_of_birth)
+          : undefined,
+        age: registrationData.date_of_birth
+          ? DateHelper.calculateAge(registrationData.date_of_birth)
+          : undefined,
+        password: registrationData.password,
+        type: registrationData.type,
+        avatar: mediaUrl,
+      });
+
+      console.log('User creation result:', user);
+
+      if (!user || !user.data || !user.data.id) {
+        console.error('User creation failed. Result:', JSON.stringify(user));
+        throw new BadRequestException(
+          'Failed to create account. Please try again.',
+        );
+      }
+
+      // Mark email as verified immediately
+      await this.prisma.user.update({
+        where: { id: user.data.id },
+        data: { email_verified_at: new Date() },
+      });
+
+      // Create Stripe customer account
+      try {
+        const stripeCustomer = await StripePayment.createCustomer({
+          user_id: user.data.id,
+          email: registrationData.email,
+          name: registrationData.name,
+        });
+
+        if (stripeCustomer) {
+          await this.prisma.user.update({
+            where: { id: user.data.id },
+            data: { billing_id: stripeCustomer.id },
+          });
+        }
+      } catch (error) {
+        console.error('Failed to create Stripe customer:', error);
+      }
+
+      // Send welcome notification
+      try {
+        await this.notificationsService.sendNotification({
+          type: NotificationType.USER_REGISTERED,
+          recipient_id: user.data.id,
+          variables: {
+            user_name: registrationData.name,
+            platform_name: 'Sports Coaching',
+          },
+        });
+      } catch (error) {
+        console.error('Failed to send welcome notification:', error);
+      }
+
+      // If user is registering as coach, create coach profile
+      if (registrationData.type === 'coach') {
+        try {
+          console.log('Creating coach profile for user:', user.data.id);
+          await this.prisma.coachProfile.create({
+            data: {
+              user_id: user.data.id,
+              // Coach can set these later in setupProfile()
+            },
+          });
+          console.log('Coach profile created successfully');
+        } catch (error) {
+          console.error('Failed to create coach profile:', error);
+          // Don't throw error - coach profile can be created later
+        }
+      }
+
+      // Clean up Redis
+      await this.redis.del(`registration_pending:${email}`);
+      await this.redis.del(`registration_otp:${email}`);
+
+      return {
+        success: true,
+        message: 'Registration completed successfully. You can now login.',
+      };
+    } catch (error) {
+      console.error('verifyAndRegister error:', error);
+      const details = error?.message ?? 'Registration verification failed';
+      throw new BadRequestException(details);
+    }
+  }
+
+  /**
+   * Legacy method - kept for backward compatibility
+   * @deprecated Use requestRegistration() and verifyAndRegister() instead
+   */
   async register({
     name,
     email,
     phone_number,
     location,
+    latitude,
+    longitude,
     date_of_birth,
     password,
     bio,
@@ -144,6 +413,8 @@ export class AuthService {
     email: string;
     password: string;
     location: string;
+    latitude: number;
+    longitude: number;
     phone_number: string;
     type?: string;
     bio?: string;
@@ -151,133 +422,20 @@ export class AuthService {
     coach_profile?: any;
     avatar?: Express.Multer.File;
   }) {
-    try {
-      // Check if email already exist
-      const userEmailExist = await UserRepository.exist({
-        field: 'email',
-        value: String(email),
-      });
-
-      if (userEmailExist) {
-        return {
-          statusCode: 401,
-          message: 'Email already exist',
-        };
-      }
-
-      let mediaUrl: string | undefined = undefined;
-
-      if (avatar?.buffer) {
-        try {
-          const safeName = avatar.originalname
-            .toLowerCase()
-            .replace(/[^a-z0-9.\s-_]/g, '') // keep only valid chars
-            .replace(/\s+/g, '-') // spaces → -
-            .replace(/-+/g, '-'); // remove double dashes
-
-          const fileName = `${StringHelper.randomString()}-${safeName}`;
-
-          await SazedStorage.put(
-            `${appConfig().storageUrl.avatar}/${fileName}`,
-            avatar.buffer,
-          );
-
-          mediaUrl = SazedStorage.url(
-            encodeURI(`${appConfig().storageUrl.avatar}/${fileName}`),
-          );
-        } catch (error) {
-          console.error('Failed to upload avatar:', error);
-          throw new Error(`Failed to upload avatar: ${error.message}`);
-        }
-      }
-
-      const user = await UserRepository.createUser({
-        name: name,
-        email: email,
-        phone_number: phone_number,
-        location: location,
-        bio: bio,
-        date_of_birth: date_of_birth,
-        age: DateHelper.calculateAge(date_of_birth),
-        password: password,
-        type: type,
-        avatar: mediaUrl,
-      });
-
-      if (user == null && user.success == false) {
-        return {
-          success: false,
-          message: 'Failed to create account',
-        };
-      }
-
-      // create stripe customer account
-      const stripeCustomer = await StripePayment.createCustomer({
-        user_id: user.data.id,
-        email: email,
-        name: name,
-      });
-
-      if (stripeCustomer) {
-        await this.prisma.user.update({
-          where: {
-            id: user.data.id,
-          },
-          data: {
-            billing_id: stripeCustomer.id,
-          },
-        });
-      }
-
-      // // If registering as a coach, create the coach profile record
-      // if (type === 'coach' && coach_profile) {
-      //   console.log('type is coach or not', type);
-
-      //   try {
-      //     await this.prisma.coachProfile.create({
-      //       data: {
-      //         user_id: user.data.id,
-      //         hourly_rate: coach_profile.hourly_rate ?? undefined,
-      //         hourly_currency: coach_profile.hourly_currency ?? null,
-      //       },
-      //     });
-      //   } catch (err) {
-      //     return {
-      //       success: false,
-      //       message:
-      //         'User created but failed to create coach profile: ' + err.message,
-      //     };
-      //   }
-      //   return {
-      //     success: true,
-      //     message: 'We have sent a verification link to your email',
-      //   };
-      // }
-
-      // Generate verification token
-      // const token = await UcodeRepository.createVerificationToken({
-      //   userId: user.data.id,
-      //   email: email,
-      // });
-
-      // // Send verification email with token
-      // await this.mailService.sendVerificationLink({
-      //   email,
-      //   name: email,
-      //   token: token.token,
-      //   type: type,
-      // });
-
-      return {
-        success: true,
-        message: 'Registered successfully',
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
-    }
+    // Redirect to new two-step flow
+    return this.requestRegistration({
+      name,
+      email,
+      phone_number,
+      location,
+      latitude,
+      longitude,
+      date_of_birth,
+      password,
+      bio,
+      type,
+      avatar,
+    });
   }
 
   async updateUser(
@@ -286,6 +444,11 @@ export class AuthService {
     avatar?: Express.Multer.File,
   ) {
     try {
+      const user = await UserRepository.getUserDetails(userId);
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+
       const data: any = {};
       if (updateUserDto.name) {
         data.name = updateUserDto.name;
@@ -295,6 +458,12 @@ export class AuthService {
       }
       if (updateUserDto.location) {
         data.location = updateUserDto.location;
+      }
+      if (updateUserDto.latitude) {
+        data.latitude = updateUserDto.latitude;
+      }
+      if (updateUserDto.longitude) {
+        data.longitude = updateUserDto.longitude;
       }
       if (updateUserDto.date_of_birth) {
         data.date_of_birth = DateHelper.format(updateUserDto.date_of_birth);
@@ -309,7 +478,14 @@ export class AuthService {
         data.objectives = updateUserDto.objectives;
       }
 
-      // athlete profile fields
+      if (updateUserDto.goals) {
+        data.goals = updateUserDto.goals;
+      }
+      if (updateUserDto.sports) {
+        data.sports = updateUserDto.sports;
+      }
+
+      // coach profile fields
       if (updateUserDto.primary_specialty) {
         data.primary_specialty = updateUserDto.primary_specialty;
       }
@@ -319,7 +495,7 @@ export class AuthService {
 
       let mediaUrl: string | undefined;
 
-     if (avatar?.buffer) {
+      if (avatar?.buffer) {
         try {
           // 1. Upload new avatar
           const safeName = avatar.originalname
@@ -335,22 +511,22 @@ export class AuthService {
           mediaUrl = SazedStorage.url(encodeURI(key));
 
           // 2. Get old avatar (if any)
-          const user = await this.prisma.user.findUnique({
+          const existingUser = await this.prisma.user.findUnique({
             where: { id: userId },
             select: { avatar: true },
           });
 
           // 3. Delete old avatar if exists and is not empty
-          if (user?.avatar) {
+          if (existingUser?.avatar) {
             try {
               // If avatar stored is a full URL -> extract its path
-              const url = new URL(user.avatar);
+              const url = new URL(existingUser.avatar);
               const oldKey = url.pathname.replace(/^\/+/, ''); // remove leading slash
 
               await SazedStorage.delete(oldKey);
             } catch {
               // If it wasn't a URL, assume it is the actual storage key
-              await SazedStorage.delete(user.avatar);
+              await SazedStorage.delete(existingUser.avatar);
             }
           }
 
@@ -359,11 +535,6 @@ export class AuthService {
         } catch (err: any) {
           console.warn('Avatar upload failed:', err.message || err);
         }
-      }
-
-      const user = await UserRepository.getUserDetails(userId);
-      if (!user) {
-        return { success: false, message: 'User not found' };
       }
 
       // If user is a coach, update coach profile fields via upsert
@@ -391,12 +562,17 @@ export class AuthService {
       return {
         success: true,
         message: 'Profile updated successfully',
+        data: await UserRepository.getUserDetails(userId),
       };
     } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
+      // Re-throw NestJS exceptions
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      // Throw generic error
+      throw new BadRequestException(
+        error?.message ?? 'Failed to update profile',
+      );
     }
   }
 
@@ -456,12 +632,16 @@ export class AuthService {
 
   async login({ email, userId }) {
     try {
+      const user = await UserRepository.getUserDetails(userId);
+
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+
       const payload = { email: email, sub: userId };
 
       const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
       const refreshToken = this.jwtService.sign(payload, { expiresIn: '7d' });
-
-      const user = await UserRepository.getUserDetails(userId);
 
       // store refreshToken
       await this.redis.set(
@@ -470,6 +650,20 @@ export class AuthService {
         'EX',
         60 * 60 * 24 * 7, // 7 days in seconds
       );
+
+      // Send login notification
+      try {
+        await this.notificationsService.sendNotification({
+          type: NotificationType.USER_LOGGED_IN,
+          recipient_id: user.id,
+          variables: {
+            user_name: user.name,
+            login_time: new Date().toISOString(),
+          },
+        });
+      } catch (error) {
+        console.error('Failed to send login notification:', error);
+      }
 
       return {
         success: true,
@@ -482,30 +676,50 @@ export class AuthService {
         type: user.type,
       };
     } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
+      // Re-throw NestJS exceptions
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      // Throw generic error
+      throw new BadRequestException(error?.message ?? 'Failed to login');
     }
   }
 
   async setupProfile(userId: string, data: any) {
     try {
       if (userId == null || userId == undefined) {
-        throw new Error('User not found');
+        throw new NotFoundException('User not found');
       }
 
-      const response = await this.prisma.user.update({
+      // Fetch existing user data first
+      const existingUser = await this.prisma.user.findUnique({
         where: { id: userId },
-        data: {
-          date_of_birth: data.date_of_birth,
-          age: DateHelper.calculateAge(data.date_of_birth),
-          bio: data.bio,
-          objectives: data.objectives,
-          goals: data.goals,
-          sports: data.sports,
-        },
       });
+
+      if (!existingUser) {
+        throw new NotFoundException('User not found');
+      }
+
+      // Build update object with only provided fields
+      const userUpdateData: any = {};
+      
+      if (data.date_of_birth !== undefined) {
+        userUpdateData.date_of_birth = data.date_of_birth;
+        userUpdateData.age = DateHelper.calculateAge(data.date_of_birth);
+      }
+      
+      if (data.bio !== undefined) userUpdateData.bio = data.bio;
+      if (data.objectives !== undefined) userUpdateData.objectives = data.objectives;
+      if (data.goals !== undefined) userUpdateData.goals = data.goals;
+      if (data.sports !== undefined) userUpdateData.sports = data.sports;
+
+      // Only update if there are fields to update
+      const response = Object.keys(userUpdateData).length > 0
+        ? await this.prisma.user.update({
+            where: { id: userId },
+            data: userUpdateData,
+          })
+        : existingUser;
 
       console.log('res.typ', response.type);
 
@@ -525,65 +739,48 @@ export class AuthService {
         // get the coach profile id
         console.log('res.coachProfileId', checkPaymentStatus);
 
-        // if (checkPaymentStatus?.registration_fee_paid === 1) {
-        //   console.log('Payment status is valid');
+        if (checkPaymentStatus?.registration_fee_paid === 1) {
+          console.log('Payment status is valid');
 
-        //   // console.log('type checking', response.type);
-        //   await this.prisma.coachProfile.upsert({
-        //     where: { user_id: userId },
-        //     update: {
-        //       bio: data.bio,
-        //       specialty: data.specialty,
-        //       experience_level: data.experience_level,
-        //       certifications: data.certifications,
-        //       rgpd_laws_agreement: data.rgpd_laws_agreement ?? false,
-        //     },
-        //     create: {
-        //       user_id: userId,
-        //       bio: data.bio,
-        //       specialty: data.specialty,
-        //       experience_level: data.experience_level,
-        //       certifications: data.certifications,
-        //       rgpd_laws_agreement: data.rgpd_laws_agreement ?? false,
-        //     },
-        //   });
+          // Build coach profile update object with only provided fields
+          const coachUpdateData: any = { user_id: userId };
+          
+          if (data.primary_specialty !== undefined) coachUpdateData.primary_specialty = data.primary_specialty;
+          if (data.specialties !== undefined) coachUpdateData.specialties = data.specialties;
+          if (data.experience_level !== undefined) coachUpdateData.experience_level = data.experience_level;
+          if (data.session_price !== undefined) coachUpdateData.session_price = data.session_price;
+          if (data.session_duration_minutes !== undefined) coachUpdateData.session_duration_minutes = data.session_duration_minutes;
+          if (data.certifications !== undefined) coachUpdateData.certifications = data.certifications;
+          if (data.rgpd_laws_agreement !== undefined) coachUpdateData.rgpd_laws_agreement = data.rgpd_laws_agreement;
+          
+          coachUpdateData.hourly_currency = 'USD';
 
-        //   return {
-        //     success: true,
-        //     message: 'Profile updated successfully',
-        //   };
-        // } else {
-        //   return {
-        //     success: false,
-        //     message:
-        //       'Coach registration fee not paid. Please complete the payment to set up your profile.',
-        //   };
-        // }
+          // console.log('type checking', response.type);
+          await this.prisma.coachProfile.upsert({
+            where: { user_id: userId },
+            update: coachUpdateData,
+            create: {
+              user_id: userId,
+              primary_specialty: data.primary_specialty,
+              specialties: data.specialties,
+              experience_level: data.experience_level,
+              session_price: data.session_price,
+              hourly_currency: 'USD',
+              session_duration_minutes: data.session_duration_minutes,
+              certifications: data.certifications,
+              rgpd_laws_agreement: data.rgpd_laws_agreement ?? false,
+            },
+          });
 
-        await this.prisma.coachProfile.upsert({
-          where: { user_id: userId },
-          update: {
-            primary_specialty: data.primary_specialty,
-            specialties: data.specialties,
-            experience_level: data.experience_level,
-            session_price: data.session_price,
-            hourly_currency: 'USD',
-            session_duration_minutes: data.session_duration_minutes,
-            certifications: data.certifications,
-            rgpd_laws_agreement: data.rgpd_laws_agreement ?? false,
-          },
-          create: {
-            user_id: userId,
-            primary_specialty: data.primary_specialty,
-            specialties: data.specialties,
-            experience_level: data.experience_level,
-            session_price: data.session_price,
-            hourly_currency: 'USD',
-            session_duration_minutes: data.session_duration_minutes,
-            certifications: data.certifications,
-            rgpd_laws_agreement: data.rgpd_laws_agreement ?? false,
-          },
-        });
+          return {
+            success: true,
+            message: 'Profile updated successfully',
+          };
+        } else {
+          throw new BadRequestException(
+            'Coach registration fee not paid. Please complete the payment to set up your profile.',
+          );
+        }
       }
 
       return {
@@ -591,22 +788,33 @@ export class AuthService {
         message: 'Profile updated successfully',
       };
     } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
+      // Re-throw NestJS exceptions
+      if (
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException
+      ) {
+        throw error;
+      }
+      // Throw generic error
+      throw new BadRequestException(
+        error?.message ?? 'Failed to setup profile',
+      );
     }
   }
 
   // google log in using passport.js
   async googleLogin({ email, userId }: { email: string; userId: string }) {
     try {
+      const user = await UserRepository.getUserDetails(userId);
+
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+
       const payload = { email: email, sub: userId };
 
       const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
       const refreshToken = this.jwtService.sign(payload, { expiresIn: '7d' });
-
-      const user = await UserRepository.getUserDetails(userId);
 
       await this.redis.set(
         `refresh_token:${user.id}`,
@@ -630,13 +838,11 @@ export class AuthService {
           });
         }
       } catch (error) {
-        return {
-          success: false,
-          message: 'User created but failed to create billing account',
-        };
+        console.error('Failed to create Stripe customer:', error);
       }
 
       return {
+        success: true,
         message: 'Logged in successfully',
         authorization: {
           type: 'bearer',
@@ -646,10 +852,14 @@ export class AuthService {
         type: user.type,
       };
     } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
+      // Re-throw NestJS exceptions
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      // Throw generic error
+      throw new BadRequestException(
+        error?.message ?? 'Failed to login with Google',
+      );
     }
   }
 
@@ -664,12 +874,16 @@ export class AuthService {
     aud: string;
   }) {
     try {
+      const user = await UserRepository.getUserDetails(userId);
+
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+
       const payload = { email, sub: userId, aud };
 
       const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
       const refreshToken = this.jwtService.sign(payload, { expiresIn: '7d' });
-
-      const user = await UserRepository.getUserDetails(userId);
 
       await this.redis.set(
         `refresh_token:${user.id}`,
@@ -693,13 +907,11 @@ export class AuthService {
           });
         }
       } catch (error) {
-        return {
-          success: false,
-          message: 'User created but failed to create billing account',
-        };
+        console.error('Failed to create Stripe customer:', error);
       }
 
       return {
+        success: true,
         message: 'Logged in successfully',
         authorization: {
           type: 'bearer',
@@ -709,34 +921,32 @@ export class AuthService {
         type: user.type,
       };
     } catch (error) {
-      return { success: false, message: error.message };
+      // Re-throw NestJS exceptions
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      // Throw generic error
+      throw new BadRequestException(
+        error?.message ?? 'Failed to login with Apple',
+      );
     }
   }
 
   async refreshToken(user_id: string, refreshToken: string) {
     try {
+      if (!user_id) {
+        throw new NotFoundException('User not found');
+      }
+
       const storedToken = await this.redis.get(`refresh_token:${user_id}`);
 
       if (!storedToken || storedToken != refreshToken) {
-        return {
-          success: false,
-          message: 'Refresh token is required',
-        };
-      }
-
-      if (!user_id) {
-        return {
-          success: false,
-          message: 'User not found',
-        };
+        throw new UnauthorizedException('Invalid or expired refresh token');
       }
 
       const userDetails = await UserRepository.getUserDetails(user_id);
       if (!userDetails) {
-        return {
-          success: false,
-          message: 'User not found',
-        };
+        throw new NotFoundException('User not found');
       }
 
       const payload = { email: userDetails.email, sub: userDetails.id };
@@ -750,10 +960,17 @@ export class AuthService {
         },
       };
     } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
+      // Re-throw NestJS exceptions
+      if (
+        error instanceof UnauthorizedException ||
+        error instanceof NotFoundException
+      ) {
+        throw error;
+      }
+      // Throw generic error
+      throw new BadRequestException(
+        error?.message ?? 'Failed to refresh token',
+      );
     }
   }
 
@@ -761,10 +978,7 @@ export class AuthService {
     try {
       const storedToken = await this.redis.get(`refresh_token:${user_id}`);
       if (!storedToken) {
-        return {
-          success: false,
-          message: 'Refresh token not found',
-        };
+        throw new NotFoundException('Refresh token not found');
       }
 
       await this.redis.del(`refresh_token:${user_id}`);
@@ -774,10 +988,14 @@ export class AuthService {
         message: 'Refresh token revoked successfully',
       };
     } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
+      // Re-throw NestJS exceptions
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      // Throw generic error
+      throw new BadRequestException(
+        error?.message ?? 'Failed to revoke refresh token',
+      );
     }
   }
 
@@ -788,33 +1006,35 @@ export class AuthService {
         value: email,
       });
 
-      if (user) {
-        const token = await UcodeRepository.createToken({
-          userId: user.id,
-          isOtp: true,
-        });
-
-        await this.mailService.sendOtpCodeToEmail({
-          email: email,
-          name: user.name,
-          otp: token,
-        });
-
-        return {
-          success: true,
-          message: 'We have sent an OTP code to your email',
-        };
-      } else {
-        return {
-          success: false,
-          message: 'Email not found',
-        };
+      if (!user) {
+        throw new NotFoundException('Email not found');
       }
-    } catch (error) {
+
+      const token = await UcodeRepository.createToken({
+        userId: user.id,
+        isOtp: true,
+      });
+
+      await this.mailService.sendOtpCodeToEmail({
+        email: email,
+        name: user.name,
+        otp: token,
+      });
+
       return {
-        success: false,
-        message: error.message,
+        success: true,
+        message: 'We have sent an OTP code to your email',
+        otp: token, // For testing only - remove in production
       };
+    } catch (error) {
+      // Re-throw NestJS exceptions
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      // Throw generic error
+      throw new BadRequestException(
+        error?.message ?? 'Failed to send password reset email',
+      );
     }
   }
 
@@ -826,34 +1046,33 @@ export class AuthService {
         value: email,
       });
 
-      if (user) {
-        const existToken = await UcodeRepository.validateToken({
-          email: email,
-          token: otp,
-        });
-
-        if (existToken) {
-          return {
-            success: true,
-            message: 'OTP verified successfully',
-          };
-        } else {
-          return {
-            success: false,
-            message: 'Invalid OTP',
-          };
-        }
-      } else {
-        return {
-          success: false,
-          message: 'Email not found',
-        };
+      if (!user) {
+        throw new NotFoundException('Email not found');
       }
-    } catch (error) {
+
+      const existToken = await UcodeRepository.validateToken({
+        email: email,
+        token: otp,
+      });
+
+      if (!existToken) {
+        throw new BadRequestException('Invalid OTP');
+      }
+
       return {
-        success: false,
-        message: error.message,
+        success: true,
+        message: 'OTP verified successfully',
       };
+    } catch (error) {
+      // Re-throw NestJS exceptions
+      if (
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException
+      ) {
+        throw error;
+      }
+      // Throw generic error
+      throw new BadRequestException(error?.message ?? 'Failed to verify OTP');
     }
   }
 
@@ -864,45 +1083,46 @@ export class AuthService {
         value: email,
       });
 
-      if (user) {
-        const existToken = await UcodeRepository.validateToken({
-          email: email,
-          token: token,
-        });
-
-        if (existToken) {
-          await UserRepository.changePassword({
-            email: email,
-            password: password,
-          });
-
-          // delete otp code
-          await UcodeRepository.deleteToken({
-            email: email,
-            token: token,
-          });
-
-          return {
-            success: true,
-            message: 'Password updated successfully',
-          };
-        } else {
-          return {
-            success: false,
-            message: 'Invalid token',
-          };
-        }
-      } else {
-        return {
-          success: false,
-          message: 'Email not found',
-        };
+      if (!user) {
+        throw new NotFoundException('Email not found');
       }
-    } catch (error) {
+
+      const existToken = await UcodeRepository.validateToken({
+        email: email,
+        token: token,
+      });
+
+      if (!existToken) {
+        throw new BadRequestException('Invalid token');
+      }
+
+      await UserRepository.changePassword({
+        email: email,
+        password: password,
+      });
+
+      // delete otp code
+      await UcodeRepository.deleteToken({
+        email: email,
+        token: token,
+      });
+
       return {
-        success: false,
-        message: error.message,
+        success: true,
+        message: 'Password updated successfully',
       };
+    } catch (error) {
+      // Re-throw NestJS exceptions
+      if (
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException
+      ) {
+        throw error;
+      }
+      // Throw generic error
+      throw new BadRequestException(
+        error?.message ?? 'Failed to reset password',
+      );
     }
   }
 
@@ -913,49 +1133,42 @@ export class AuthService {
         value: email,
       });
 
-      if (user) {
-        const existToken = await UcodeRepository.validateToken({
-          email: email,
-          token: token,
-        });
-
-        if (existToken) {
-          await this.prisma.user.update({
-            where: {
-              id: user.id,
-            },
-            data: {
-              email_verified_at: new Date(Date.now()),
-            },
-          });
-
-          // delete otp code
-          // await UcodeRepository.deleteToken({
-          //   email: email,
-          //   token: token,
-          // });
-
-          return {
-            success: true,
-            message: 'Email verified successfully',
-          };
-        } else {
-          return {
-            success: false,
-            message: 'Invalid token',
-          };
-        }
-      } else {
-        return {
-          success: false,
-          message: 'Email not found',
-        };
+      if (!user) {
+        throw new NotFoundException('Email not found');
       }
-    } catch (error) {
+
+      const existToken = await UcodeRepository.validateToken({
+        email: email,
+        token: token,
+      });
+
+      if (!existToken) {
+        throw new BadRequestException('Invalid token');
+      }
+
+      await this.prisma.user.update({
+        where: {
+          id: user.id,
+        },
+        data: {
+          email_verified_at: new Date(Date.now()),
+        },
+      });
+
       return {
-        success: false,
-        message: error.message,
+        success: true,
+        message: 'Email verified successfully',
       };
+    } catch (error) {
+      // Re-throw NestJS exceptions
+      if (
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException
+      ) {
+        throw error;
+      }
+      // Throw generic error
+      throw new BadRequestException(error?.message ?? 'Failed to verify email');
     }
   }
 
@@ -963,35 +1176,36 @@ export class AuthService {
     try {
       const user = await UserRepository.getUserByEmail(email);
 
-      if (user) {
-        // create otp code
-        const token = await UcodeRepository.createToken({
-          userId: user.id,
-          isOtp: true,
-        });
-
-        // send otp code to email
-        await this.mailService.sendOtpCodeToEmail({
-          email: email,
-          name: user.name,
-          otp: token,
-        });
-
-        return {
-          success: true,
-          message: 'We have sent a verification code to your email',
-        };
-      } else {
-        return {
-          success: false,
-          message: 'Email not found',
-        };
+      if (!user) {
+        throw new NotFoundException('Email not found');
       }
-    } catch (error) {
+
+      // create otp code
+      const token = await UcodeRepository.createToken({
+        userId: user.id,
+        isOtp: true,
+      });
+
+      // send otp code to email
+      await this.mailService.sendOtpCodeToEmail({
+        email: email,
+        name: user.name,
+        otp: token,
+      });
+
       return {
-        success: false,
-        message: error.message,
+        success: true,
+        message: 'We have sent a verification code to your email',
       };
+    } catch (error) {
+      // Re-throw NestJS exceptions
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      // Throw generic error
+      throw new BadRequestException(
+        error?.message ?? 'Failed to resend verification email',
+      );
     }
   }
 
@@ -999,72 +1213,96 @@ export class AuthService {
     try {
       const user = await UserRepository.getUserDetails(user_id);
 
-      if (user) {
-        const _isValidPassword = await UserRepository.validatePassword({
-          email: user.email,
-          password: oldPassword,
-        });
-        if (_isValidPassword) {
-          await UserRepository.changePassword({
-            email: user.email,
-            password: newPassword,
-          });
-
-          return {
-            success: true,
-            message: 'Password updated successfully',
-          };
-        } else {
-          return {
-            success: false,
-            message: 'Invalid password',
-          };
-        }
-      } else {
-        return {
-          success: false,
-          message: 'Email not found',
-        };
+      if (!user) {
+        throw new NotFoundException('User not found');
       }
-    } catch (error) {
+
+      if (oldPassword === newPassword) {
+        throw new BadRequestException(
+          'New password cannot be the same as old password',
+        );
+      }
+
+      const _isValidPassword = await UserRepository.validatePassword({
+        email: user.email,
+        password: oldPassword,
+      });
+
+      if (!_isValidPassword) {
+        throw new UnauthorizedException('Current password is incorrect');
+      }
+
+      await UserRepository.changePassword({
+        email: user.email,
+        password: newPassword,
+      });
+
+      // Send password change notification
+      try {
+        await this.notificationsService.sendNotification({
+          type: NotificationType.PASSWORD_CHANGED,
+          recipient_id: user_id,
+          variables: {
+            user_name: user.name,
+          },
+        });
+      } catch (error) {
+        console.error('Failed to send password change notification:', error);
+      }
+
       return {
-        success: false,
-        message: error.message,
+        success: true,
+        message: 'Password updated successfully',
       };
+    } catch (error) {
+      // Re-throw NestJS exceptions
+      if (
+        error instanceof BadRequestException ||
+        error instanceof UnauthorizedException ||
+        error instanceof NotFoundException
+      ) {
+        throw error;
+      }
+      // Throw generic error
+      throw new BadRequestException(
+        error?.message ?? 'Failed to change password',
+      );
     }
   }
 
   async requestEmailChange(user_id: string, email: string) {
     try {
       const user = await UserRepository.getUserDetails(user_id);
-      if (user) {
-        const token = await UcodeRepository.createToken({
-          userId: user.id,
-          isOtp: true,
-          email: email,
-        });
-
-        await this.mailService.sendOtpCodeToEmail({
-          email: email,
-          name: email,
-          otp: token,
-        });
-
-        return {
-          success: true,
-          message: 'We have sent an OTP code to your email',
-        };
-      } else {
-        return {
-          success: false,
-          message: 'User not found',
-        };
+      if (!user) {
+        throw new NotFoundException('User not found');
       }
-    } catch (error) {
+
+      const token = await UcodeRepository.createToken({
+        userId: user.id,
+        isOtp: true,
+        email: email,
+      });
+
+      await this.mailService.sendOtpCodeToEmail({
+        email: email,
+        name: email,
+        otp: token,
+      });
+
       return {
-        success: false,
-        message: error.message,
+        success: true,
+        message: 'We have sent an OTP code to your email',
+        otp: token, // For testing only - remove in production
       };
+    } catch (error) {
+      // Re-throw NestJS exceptions
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      // Throw generic error
+      throw new BadRequestException(
+        error?.message ?? 'Failed to request email change',
+      );
     }
   }
 
@@ -1080,126 +1318,129 @@ export class AuthService {
     try {
       const user = await UserRepository.getUserDetails(user_id);
 
-      if (user) {
-        const existToken = await UcodeRepository.validateToken({
-          email: new_email,
-          token: token,
-          forEmailChange: true,
-        });
-
-        if (existToken) {
-          await UserRepository.changeEmail({
-            user_id: user.id,
-            new_email: new_email,
-          });
-
-          // delete otp code
-          await UcodeRepository.deleteToken({
-            email: new_email,
-            token: token,
-          });
-
-          return {
-            success: true,
-            message: 'Email updated successfully',
-          };
-        } else {
-          return {
-            success: false,
-            message: 'Invalid token',
-          };
-        }
-      } else {
-        return {
-          success: false,
-          message: 'User not found',
-        };
+      if (!user) {
+        throw new NotFoundException('User not found');
       }
-    } catch (error) {
+
+      const existToken = await UcodeRepository.validateToken({
+        email: user.email,
+        token: token,
+        forEmailChange: true,
+      });
+
+      if (!existToken) {
+        throw new BadRequestException('Invalid token');
+      }
+
+      await UserRepository.changeEmail({
+        user_id: user.id,
+        new_email: new_email,
+      });
+
+      // delete otp code
+      await UcodeRepository.deleteToken({
+        email: new_email,
+        token: token,
+      });
+
       return {
-        success: false,
-        message: error.message,
+        success: true,
+        message: 'Email updated successfully',
       };
+    } catch (error) {
+      // Re-throw NestJS exceptions
+      if (
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException
+      ) {
+        throw error;
+      }
+      // Throw generic error
+      throw new BadRequestException(error?.message ?? 'Failed to change email');
     }
   }
 
   // --------- 2FA ---------
   async generate2FASecret(user_id: string) {
     try {
+      const user = await UserRepository.getUserDetails(user_id);
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
       return await UserRepository.generate2FASecret(user_id);
     } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
+      // Re-throw NestJS exceptions
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      // Throw generic error
+      throw new BadRequestException(
+        error?.message ?? 'Failed to generate 2FA secret',
+      );
     }
   }
-
 
   async verify2FA(user_id: string, token: string) {
     try {
       const isValid = await UserRepository.verify2FA(user_id, token);
       if (!isValid) {
-        return {
-          success: false,
-          message: 'Invalid token',
-        };
+        throw new BadRequestException('Invalid token');
       }
       return {
         success: true,
         message: '2FA verified successfully',
       };
     } catch (error) {
-      return {
-        success: false,
-        message: error.message,
-      };
+      // Re-throw NestJS exceptions
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      // Throw generic error
+      throw new BadRequestException(error?.message ?? 'Failed to verify 2FA');
     }
   }
 
   async enable2FA(user_id: string) {
     try {
       const user = await UserRepository.getUserDetails(user_id);
-      if (user) {
-        await UserRepository.enable2FA(user_id);
-        return {
-          success: true,
-          message: '2FA enabled successfully',
-        };
-      } else {
-        return {
-          success: false,
-          message: 'User not found',
-        };
+      if (!user) {
+        throw new NotFoundException('User not found');
       }
-    } catch (error) {
+
+      await UserRepository.enable2FA(user_id);
       return {
-        success: false,
-        message: error.message,
+        success: true,
+        message: '2FA enabled successfully',
       };
+    } catch (error) {
+      // Re-throw NestJS exceptions
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      // Throw generic error
+      throw new BadRequestException(error?.message ?? 'Failed to enable 2FA');
     }
   }
 
   async disable2FA(user_id: string) {
     try {
       const user = await UserRepository.getUserDetails(user_id);
-      if (user) {
-        await UserRepository.disable2FA(user_id);
-        return {
-          success: true,
-          message: '2FA disabled successfully',
-        };
-      } else {
-        return {
-          success: false,
-          message: 'User not found',
-        };
+      if (!user) {
+        throw new NotFoundException('User not found');
       }
-    } catch (error) {
+
+      await UserRepository.disable2FA(user_id);
       return {
-        success: false,
-        message: error.message,
+        success: true,
+        message: '2FA disabled successfully',
       };
+    } catch (error) {
+      // Re-throw NestJS exceptions
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      // Throw generic error
+      throw new BadRequestException(error?.message ?? 'Failed to disable 2FA');
     }
   }
   // --------- end 2FA ---------

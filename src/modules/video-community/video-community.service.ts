@@ -86,6 +86,7 @@ export class VideoCommunityService {
         duration: dto.duration || null,
         description: dto.description || null,
         video_url: mediaUrl || '',
+        // is_premium: dto.is_premium || false,
       },
       select: {
         id: true,

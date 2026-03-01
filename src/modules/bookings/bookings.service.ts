@@ -10,36 +10,39 @@ import * as crypto from 'crypto';
 import { UpdateBookingDto } from './dto/update-booking.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { StripePayment } from 'src/common/lib/Payment/stripe/StripePayment';
-import { NotificationRepository } from 'src/common/repository/notification/notification.repository';
+import {
+  NotificationsService,
+  NotificationType,
+} from 'src/modules/notifications/notifications.service';
 
 @Injectable()
 export class BookingsService {
   private readonly logger = new Logger(BookingsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationsService: NotificationsService,
+  ) {}
 
   private async createNotification(
     receiverId: string | undefined,
     text: string,
-    type:
-      | 'booking'
-      | 'payment_transaction'
-      | 'package'
-      | 'message'
-      | 'comment'
-      | 'review'
-      | 'blog' = 'booking',
+    notificationType: NotificationType = NotificationType.BOOKING_CREATED,
     senderId?: string,
     entityId?: string,
+    variables?: Record<string, any>,
   ) {
     if (!receiverId) return;
     try {
-      await NotificationRepository.createNotification({
-        receiver_id: receiverId,
+      await this.notificationsService.sendNotification({
+        type: notificationType,
+        recipient_id: receiverId,
         sender_id: senderId,
-        text,
-        type,
         entity_id: entityId,
+        variables: {
+          notification_text: text,
+          ...variables,
+        },
       });
     } catch (err) {
       this.logger.warn(`Notification creation failed: ${text}`, err as any);
@@ -162,6 +165,65 @@ export class BookingsService {
     ]);
   }
 
+  private async checkTimeConflict(
+    coachId: string,
+    athleteId: string,
+    appointmentDate: Date,
+    sessionTime: Date,
+    durationMinutes: number,
+    excludeBookingId?: string,
+  ): Promise<{
+    hasConflict: boolean;
+    conflictWith?: 'coach' | 'athlete';
+    conflictBooking?: any;
+  }> {
+    // Calculate end time
+    const startTime = new Date(sessionTime);
+    const endTime = new Date(startTime.getTime() + durationMinutes * 60000);
+
+    // Check for overlapping bookings (CONFIRMED or PENDING status)
+    const conflictingBookings = await this.prisma.booking.findMany({
+      where: {
+        id: excludeBookingId ? { not: excludeBookingId } : undefined,
+        status: { in: ['CONFIRMED', 'PENDING'] },
+        OR: [{ coach_id: coachId }, { user_id: athleteId }],
+        appointment_date: appointmentDate,
+        session_time: { not: null },
+      },
+      select: {
+        id: true,
+        coach_id: true,
+        user_id: true,
+        session_time: true,
+        duration_minutes: true,
+        status: true,
+      },
+    });
+
+    for (const booking of conflictingBookings) {
+      if (!booking.session_time) continue;
+
+      const existingStart = new Date(booking.session_time);
+      const existingEnd = new Date(
+        existingStart.getTime() + (booking.duration_minutes || 60) * 60000,
+      );
+
+      // Check for time overlap
+      const hasOverlap = startTime < existingEnd && endTime > existingStart;
+
+      if (hasOverlap) {
+        const conflictWith = booking.coach_id === coachId ? 'coach' : 'athlete';
+        return {
+          hasConflict: true,
+          conflictWith,
+          conflictBooking: booking,
+        };
+      }
+    }
+
+    return { hasConflict: false };
+  }
+
   async setBlockedDays(coachId: string, blockedDates: string[]) {
     if (!coachId) throw new BadRequestException('Coach ID is required');
     if (!Array.isArray(blockedDates))
@@ -219,7 +281,7 @@ export class BookingsService {
     await this.createNotification(
       coachId,
       `${blockedDates.length} day(s) have been blocked on your calendar.`,
-      'booking',
+      NotificationType.BOOKING_CREATED,
       coachId,
       coachProfile.id,
     );
@@ -355,7 +417,7 @@ export class BookingsService {
     await this.createNotification(
       coachId,
       `Time slot from ${startTime} to ${endTime} on ${new Date(date).toLocaleDateString()} has been blocked on your calendar.`,
-      'booking',
+      NotificationType.BOOKING_CREATED,
       coachId,
       coachProfile.id,
     );
@@ -497,7 +559,7 @@ export class BookingsService {
     await this.createNotification(
       coachId,
       `${weekendDays.length} weekend day(s) have been set on your calendar.`,
-      'booking',
+      NotificationType.BOOKING_CREATED,
       coachId,
       coachProfile.id,
     );
@@ -823,13 +885,13 @@ export class BookingsService {
       // parse and validate date (accept flexible formats like 2025-10-5T10:55:51.710Z)
       const normalizeDateString = (s: string) => {
         if (!s || typeof s !== 'string') return s;
-        
+
         // trim whitespace
         let str = s.trim();
-        
+
         // allow space instead of T
         str = str.replace(' ', 'T');
-        
+
         // try native parse first
         const d = new Date(str);
         if (!isNaN(d.getTime())) return str;
@@ -863,7 +925,9 @@ export class BookingsService {
       const normalized = normalizeDateString(date);
       const appointmentDate = new Date(normalized);
       if (isNaN(appointmentDate.getTime()))
-        throw new BadRequestException(`Invalid date format. Received: "${date}". Expected formats: YYYY-MM-DD or ISO 8601`);
+        throw new BadRequestException(
+          `Invalid date format. Received: "${date}". Expected formats: YYYY-MM-DD or ISO 8601`,
+        );
 
       // Validate appointment date is not in the past
       const now = new Date();
@@ -984,16 +1048,17 @@ export class BookingsService {
           Number(booking.session_price) || Number(booking.total_amount) || 0;
         console.log('ammount', amount);
         const currency = booking.currency || 'USD';
-        const paymentIntent = await StripePayment.createManualCapturePaymentIntent({
-          amount,
-          currency,
-          customer_id: customerId,
-          metadata: {
-            booking_id: booking.id,
-            user_id: getAthlete.id,
-            type: 'booking',
-          },
-        });
+        const paymentIntent =
+          await StripePayment.createManualCapturePaymentIntent({
+            amount,
+            currency,
+            customer_id: customerId,
+            metadata: {
+              booking_id: booking.id,
+              user_id: getAthlete.id,
+              type: 'booking',
+            },
+          });
 
         // create payment transaction and link to booking
         const tx = await this.prisma.paymentTransaction.create({
@@ -1017,12 +1082,16 @@ export class BookingsService {
         await this.createNotification(
           coachId,
           `${getAthlete.name || 'An athlete'} requested a session on ${appointmentDate.toISOString().slice(0, 10)}`,
-          'booking',
+          NotificationType.BOOKING_CREATED,
           athleteId,
           booking.id,
         );
 
-        return { booking, clientSecret: paymentIntent.client_secret };
+        return {
+          booking,
+          clientSecret: paymentIntent.client_secret,
+          payment_intent_id: paymentIntent.id,
+        };
       }
 
       // session package booking: compute per-session price
@@ -1071,17 +1140,18 @@ export class BookingsService {
       // create payment intent for package total
       const amount = Number(booking.total_amount) || 0;
       const currency = booking.currency || 'USD';
-      const paymentIntent = await StripePayment.createManualCapturePaymentIntent({
-        amount,
-        currency,
-        customer_id: customerId,
-        metadata: {
-          booking_id: booking.id,
-          user_id: getAthlete.id,
-          package_id: sessionPackage.id,
-          type: 'booking',
-        },
-      });
+      const paymentIntent =
+        await StripePayment.createManualCapturePaymentIntent({
+          amount,
+          currency,
+          customer_id: customerId,
+          metadata: {
+            booking_id: booking.id,
+            user_id: getAthlete.id,
+            package_id: sessionPackage.id,
+            type: 'booking',
+          },
+        });
 
       const tx = await this.prisma.paymentTransaction.create({
         data: {
@@ -1104,7 +1174,7 @@ export class BookingsService {
       await this.createNotification(
         coachId,
         `${getAthlete.name || 'An athlete'} requested a session package on ${appointmentDate.toISOString().slice(0, 10)}`,
-        'booking',
+        NotificationType.BOOKING_CREATED,
         athleteId,
         booking.id,
       );
@@ -1113,6 +1183,7 @@ export class BookingsService {
         message: 'Session booking created (awaiting payment)',
         booking,
         clientSecret: paymentIntent.client_secret,
+        payment_intent_id: paymentIntent.id,
       };
     } catch (error) {
       console.error('bookAppointment error:', error);
@@ -1156,6 +1227,7 @@ export class BookingsService {
             type: true,
           },
         },
+
         coach_profile: {
           select: {
             id: true,
@@ -1414,73 +1486,74 @@ export class BookingsService {
     };
 
     // Only videos are gated by subscription; other athlete features stay free
-    const [coachNotes, onDemandTips, userBadges, miniLessons] = await Promise.all([
-      this.prisma.goalNote.findMany({
-        where: {
-          user_id: athleteId,
-          coach_id: booking.coach_id,
-        },
-        select: {
-          id: true,
-          note: true,
-          created_at: true,
-          goal: {
-            select: {
-              id: true,
-              title: true,
+    const [coachNotes, onDemandTips, userBadges, miniLessons] =
+      await Promise.all([
+        this.prisma.goalNote.findMany({
+          where: {
+            user_id: athleteId,
+            coach_id: booking.coach_id,
+          },
+          select: {
+            id: true,
+            note: true,
+            created_at: true,
+            goal: {
+              select: {
+                id: true,
+                title: true,
+              },
             },
           },
-        },
-        orderBy: { created_at: 'desc' },
-        take: 5,
-      }),
-      this.prisma.goalNote.findMany({
-        where: {
-          coach_id: booking.coach_id,
-          user_id: athleteId,
-        },
-        select: {
-          id: true,
-          note: true,
-          created_at: true,
-        },
-        orderBy: { created_at: 'desc' },
-        take: 3,
-      }),
-      this.prisma.userBadge.findMany({
-        where: { user_id: athleteId },
-        include: {
-          badge: {
-            select: {
-              id: true,
-              key: true,
-              title: true,
-              description: true,
-              points: true,
-              icon: true,
+          orderBy: { created_at: 'desc' },
+          take: 5,
+        }),
+        this.prisma.goalNote.findMany({
+          where: {
+            coach_id: booking.coach_id,
+            user_id: athleteId,
+          },
+          select: {
+            id: true,
+            note: true,
+            created_at: true,
+          },
+          orderBy: { created_at: 'desc' },
+          take: 3,
+        }),
+        this.prisma.userBadge.findMany({
+          where: { user_id: athleteId },
+          include: {
+            badge: {
+              select: {
+                id: true,
+                key: true,
+                title: true,
+                description: true,
+                points: true,
+                icon: true,
+              },
             },
           },
-        },
-        orderBy: { earned_at: 'desc' },
-      }),
-      isPremium
-        ? this.prisma.video.findMany({
-            where: {
-              coach_id: booking.coach_id,
-              is_premium: true,
-            },
-            select: {
-              id: true,
-              title: true,
-              description: true,
-              thumbnail: true,
-              duration: true,
-              video_url: true,
-            },
-            take: 3,
-          })
-        : Promise.resolve([]),
-    ]);
+          orderBy: { earned_at: 'desc' },
+        }),
+        isPremium
+          ? this.prisma.video.findMany({
+              where: {
+                coach_id: booking.coach_id,
+                is_premium: true,
+              },
+              select: {
+                id: true,
+                title: true,
+                description: true,
+                thumbnail: true,
+                duration: true,
+                video_url: true,
+              },
+              take: 3,
+            })
+          : Promise.resolve([]),
+      ]);
 
     response = {
       ...response,
@@ -1549,6 +1622,7 @@ export class BookingsService {
       select: {
         id: true,
         appointment_date: true,
+        status: true,
         title: true,
         session_time: true,
         session_time_display: true,
@@ -1654,6 +1728,7 @@ export class BookingsService {
       select: {
         id: true,
         appointment_date: true,
+        status: true,
         title: true,
         session_time: true,
         session_time_display: true,
@@ -1680,6 +1755,143 @@ export class BookingsService {
       };
     }
 
+    return { items: bookings, total: bookings.length };
+  }
+
+  async cancelBooking(coachId: string, bookingId: string) {
+    if (!coachId) throw new BadRequestException('Coach ID is required');
+    if (!bookingId) throw new BadRequestException('Booking ID is required');
+
+    const booking = await this.prisma.booking.findFirst({
+      where: { id: bookingId, coach_id: coachId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+      },
+    });
+    if (!booking) throw new NotFoundException('Booking not found');
+    if (booking.status === 'CANCELLED')
+      throw new BadRequestException('Booking is already cancelled');
+
+    // Prevent cancellation of completed sessions
+    if (booking.status === 'COMPLETED')
+      throw new BadRequestException(
+        'Cannot cancel a completed session. The session has already been finished.',
+      );
+
+    // Check if payment has already been transferred to coach
+    if (booking.payment_transaction_id) {
+      const paymentTx = await this.prisma.paymentTransaction.findUnique({
+        where: { id: booking.payment_transaction_id },
+      });
+
+      if (paymentTx && paymentTx.status === 'completed') {
+        throw new BadRequestException(
+          'Cannot cancel this booking. Payment has already been transferred to the coach account. Please contact support for refund assistance.',
+        );
+      }
+    }
+
+    // Update booking status to cancelled
+    const updatedBooking = await this.prisma.booking.update({
+      where: { id: bookingId },
+      data: { status: 'CANCELLED' },
+    });
+
+    let paymentAction = 'none';
+    let paymentMessage = '';
+
+    // Handle payment cancellation (only for pending/authorized payments)
+    if (booking.payment_transaction_id) {
+      const paymentTx = await this.prisma.paymentTransaction.findUnique({
+        where: { id: booking.payment_transaction_id },
+      });
+
+      if (paymentTx && paymentTx.reference_number) {
+        try {
+          // Release held payment (authorized but not captured)
+          if (
+            paymentTx.status === 'pending' ||
+            paymentTx.status === 'authorized' ||
+            paymentTx.status === 'confirmed'
+          ) {
+            // Release the held payment (cancel the payment intent)
+            await StripePayment.cancelPaymentIntent(paymentTx.reference_number);
+
+            await this.prisma.paymentTransaction.update({
+              where: { id: paymentTx.id },
+              data: { status: 'cancelled' },
+            });
+
+            paymentAction = 'released';
+            paymentMessage =
+              'Payment hold released. Funds will be available in your account shortly.';
+
+            this.logger.log(
+              `Payment hold released for booking ${bookingId}, payment intent: ${paymentTx.reference_number}`,
+            );
+          }
+        } catch (err) {
+          this.logger.error(
+            `Failed to process payment cancellation for booking ${bookingId}`,
+            err,
+          );
+          // Continue with cancellation even if payment reversal fails
+          paymentMessage =
+            'Booking cancelled. Payment reversal is being processed separately.';
+        }
+      }
+    }
+
+    // Notify athlete about cancellation and payment status
+    if (booking.user?.id) {
+      const notificationText = paymentMessage
+        ? `Your booking on ${booking.appointment_date.toISOString().slice(0, 10)} has been cancelled by the coach. ${paymentMessage}`
+        : `Your booking on ${booking.appointment_date.toISOString().slice(0, 10)} has been cancelled by the coach.`;
+
+      await this.createNotification(
+        booking.user.id,
+        notificationText,
+        NotificationType.BOOKING_CANCELLED,
+        coachId,
+        booking.id,
+      );
+    }
+
+    return {
+      success: true,
+      message: 'Booking cancelled successfully',
+      booking: updatedBooking,
+      paymentStatus: paymentAction,
+      paymentMessage,
+    };
+  }
+
+  async getCancelledBookings(userId: string) {
+    if (!userId) throw new BadRequestException('User ID is required');
+
+    const bookings = await this.prisma.booking.findMany({
+      where: {
+        user_id: userId,
+        status: 'CANCELLED',
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            status: true,
+            email: true,
+            avatar: true,
+          },
+        },
+      },
+    });
     return { items: bookings, total: bookings.length };
   }
 
@@ -1925,7 +2137,39 @@ export class BookingsService {
         coach_id: coachId,
         coach_profile_id: coachProfile.id,
       },
-      include: {
+      select: {
+        id: true,
+        created_at: true,
+        updated_at: true,
+        deleted_at: true,
+        title: true,
+        coach_id: true,
+        user_id: true,
+        coach_profile_id: true,
+        appointment_date: true,
+        session_time: true,
+        session_time_display: true,
+        duration_minutes: true,
+        session_price: true,
+        location: true,
+        session_package_id: true,
+        description: true,
+        number_of_members: true,
+        number_of_sessions: true,
+        days_validity: true,
+        total_completed_session: true,
+        total_amount: true,
+        currency: true,
+        payment_transaction_id: true,
+        custom_offer_payment_transaction_id: true,
+        status: true,
+        notes: true,
+        rating: true,
+        feedback: true,
+        google_map_link: true,
+        latitude: true,
+        longitude: true,
+        // Explicitly exclude validation_token and token_expires_at from coach view
         user: {
           select: {
             id: true,
@@ -1947,7 +2191,7 @@ export class BookingsService {
     });
     if (!booking) throw new NotFoundException('Booking not found');
 
-    return booking; // For coach view we intentionally return athlete (user) details and avoid returning coach_profile (self) to the response
+    return booking; // For coach view we intentionally return athlete (user) details and avoid returning coach_profile (self) and validation_token to the response
   }
 
   async getSessionDetails(userId: string, bookingId: string) {
@@ -2162,8 +2406,12 @@ export class BookingsService {
         duration_minutes:
           booking.duration_minutes || coachProfile?.session_duration_minutes,
         number_of_members: booking.number_of_members || 1,
-        session_price: booking.session_price ? Number(booking.session_price) : null,
-        total_amount: booking.total_amount ? Number(booking.total_amount) : null,
+        session_price: booking.session_price
+          ? Number(booking.session_price)
+          : null,
+        total_amount: booking.total_amount
+          ? Number(booking.total_amount)
+          : null,
         currency: booking.currency,
         location: booking.location,
       },
@@ -2369,73 +2617,74 @@ export class BookingsService {
 
     // Only videos are gated by subscription; other athlete features stay free
     if (!isCoach) {
-      const [coachNotes, onDemandTips, userBadges, miniLessons] = await Promise.all([
-        this.prisma.goalNote.findMany({
-          where: {
-            user_id: userId,
-            coach_id: booking.coach_id,
-          },
-          select: {
-            id: true,
-            note: true,
-            created_at: true,
-            goal: {
-              select: {
-                id: true,
-                title: true,
+      const [coachNotes, onDemandTips, userBadges, miniLessons] =
+        await Promise.all([
+          this.prisma.goalNote.findMany({
+            where: {
+              user_id: userId,
+              coach_id: booking.coach_id,
+            },
+            select: {
+              id: true,
+              note: true,
+              created_at: true,
+              goal: {
+                select: {
+                  id: true,
+                  title: true,
+                },
               },
             },
-          },
-          orderBy: { created_at: 'desc' },
-          take: 5,
-        }),
-        this.prisma.goalNote.findMany({
-          where: {
-            coach_id: booking.coach_id,
-            user_id: userId,
-          },
-          select: {
-            id: true,
-            note: true,
-            created_at: true,
-          },
-          orderBy: { created_at: 'desc' },
-          take: 3,
-        }),
-        this.prisma.userBadge.findMany({
-          where: { user_id: userId },
-          include: {
-            badge: {
-              select: {
-                id: true,
-                key: true,
-                title: true,
-                description: true,
-                points: true,
-                icon: true,
+            orderBy: { created_at: 'desc' },
+            take: 5,
+          }),
+          this.prisma.goalNote.findMany({
+            where: {
+              coach_id: booking.coach_id,
+              user_id: userId,
+            },
+            select: {
+              id: true,
+              note: true,
+              created_at: true,
+            },
+            orderBy: { created_at: 'desc' },
+            take: 3,
+          }),
+          this.prisma.userBadge.findMany({
+            where: { user_id: userId },
+            include: {
+              badge: {
+                select: {
+                  id: true,
+                  key: true,
+                  title: true,
+                  description: true,
+                  points: true,
+                  icon: true,
+                },
               },
             },
-          },
-          orderBy: { earned_at: 'desc' },
-        }),
-        isPremium
-          ? this.prisma.video.findMany({
-              where: {
-                coach_id: booking.coach_id,
-                is_premium: true,
-              },
-              select: {
-                id: true,
-                title: true,
-                description: true,
-                thumbnail: true,
-                duration: true,
-                video_url: true,
-              },
-              take: 5,
-            })
-          : Promise.resolve([]),
-      ]);
+            orderBy: { earned_at: 'desc' },
+          }),
+          isPremium
+            ? this.prisma.video.findMany({
+                where: {
+                  coach_id: booking.coach_id,
+                  is_premium: true,
+                },
+                select: {
+                  id: true,
+                  title: true,
+                  description: true,
+                  thumbnail: true,
+                  duration: true,
+                  video_url: true,
+                },
+                take: 5,
+              })
+            : Promise.resolve([]),
+        ]);
 
       response.premiumFeatures = {
         miniLessons: miniLessons || [],
@@ -2506,6 +2755,8 @@ export class BookingsService {
       updateData.google_map_link = updateBookingDto.google_map_link;
     if (updateBookingDto.status !== undefined)
       updateData.status = updateBookingDto.status;
+    if (updateBookingDto.formatted_address !== undefined)
+      updateData.formatted_address = updateBookingDto.formatted_address;
     if (updateBookingDto.latitude !== undefined) {
       const latitude = Number(updateBookingDto.latitude);
       if (latitude < -90 || latitude > 90)
@@ -2603,7 +2854,9 @@ export class BookingsService {
       }
 
       // Calculate duration_minutes from startTime and endTime
-      const parseTime = (timeStr: string): { hours: number; minutes: number } => {
+      const parseTime = (
+        timeStr: string,
+      ): { hours: number; minutes: number } => {
         // Handle both "HH:MM" and "HH:MM AM/PM" formats
         const match = timeStr.match(/^(\d{1,2}):(\d{2})\s?(AM|PM)?$/i);
         if (!match) throw new Error('Invalid time format');
@@ -2626,21 +2879,37 @@ export class BookingsService {
 
       const startTime24 = parseTime(startTime);
       const endTime24 = parseTime(endTime);
-      
+
       const startTotalMinutes = startTime24.hours * 60 + startTime24.minutes;
       const endTotalMinutes = endTime24.hours * 60 + endTime24.minutes;
 
       let durationMinutes = endTotalMinutes - startTotalMinutes;
       if (durationMinutes <= 0) {
-        throw new BadRequestException(
-          'End time must be after start time',
-        );
+        throw new BadRequestException('End time must be after start time');
       }
 
       // Create session_time as ISO-8601 datetime using appointment_date + startTime
-      const appointmentDate = updateData.appointment_date || booking.appointment_date;
+      const appointmentDate =
+        updateData.appointment_date || booking.appointment_date;
       const sessionDateTime = new Date(appointmentDate);
       sessionDateTime.setUTCHours(startTime24.hours, startTime24.minutes, 0, 0);
+
+      // Check for time conflicts before updating
+      const conflict = await this.checkTimeConflict(
+        coachId,
+        booking.user_id,
+        appointmentDate,
+        sessionDateTime,
+        durationMinutes,
+        bookingId, // Exclude current booking
+      );
+
+      if (conflict.hasConflict) {
+        throw new ConflictException(
+          `Time slot conflict: ${conflict.conflictWith === 'coach' ? 'Coach' : 'Athlete'} already has a booking at this time`,
+        );
+      }
+
       updateData.session_time = sessionDateTime;
 
       // Set session_time_display as "startTime - endTime" format
@@ -2663,7 +2932,8 @@ export class BookingsService {
     const updatedFields = Object.keys(updateData);
     const changedDetails = updatedFields
       .map((field) => {
-        if (field === 'session_time') return `time slot to ${updateData[field]}`;
+        if (field === 'session_time')
+          return `time slot to ${updateData[field]}`;
         if (field === 'appointment_date')
           return `date to ${new Date(updateData[field]).toLocaleDateString()}`;
         if (field === 'duration_minutes')
@@ -2675,7 +2945,7 @@ export class BookingsService {
     await this.createNotification(
       booking.user_id,
       `Your booking has been updated: ${changedDetails}`,
-      'booking',
+      NotificationType.BOOKING_RESCHEDULED,
       coachId,
       booking.id,
     );
@@ -2689,14 +2959,21 @@ export class BookingsService {
         session_time: updatedBooking.session_time,
         session_time_display: updatedBooking.session_time_display,
         duration_minutes: updatedBooking.duration_minutes,
-        location: updatedBooking.location,
         title: updatedBooking.title,
         description: updatedBooking.description,
         notes: updatedBooking.notes,
         status: updatedBooking.status,
-        latitude: updatedBooking.latitude ? Number(updatedBooking.latitude) : null,
-        longitude: updatedBooking.longitude ? Number(updatedBooking.longitude) : null,
-        session_price: updatedBooking.session_price ? Number(updatedBooking.session_price) : null,
+        location: updatedBooking.location,
+        formatted_address: updatedBooking.formatted_address,
+        latitude: updatedBooking.latitude
+          ? Number(updatedBooking.latitude)
+          : null,
+        longitude: updatedBooking.longitude
+          ? Number(updatedBooking.longitude)
+          : null,
+        session_price: updatedBooking.session_price
+          ? Number(updatedBooking.session_price)
+          : null,
         currency: updatedBooking.currency,
       },
     };
@@ -2727,9 +3004,7 @@ export class BookingsService {
     // Validate number of members
     const numberOfMembers = Number(customOfferDto.number_of_members);
     if (!numberOfMembers || numberOfMembers < 1) {
-      throw new BadRequestException(
-        'Number of members must be at least 1',
-      );
+      throw new BadRequestException('Number of members must be at least 1');
     }
 
     // Parse and validate times
@@ -2810,33 +3085,45 @@ export class BookingsService {
     );
 
     if (newDateOnly < todayOnly) {
-      throw new BadRequestException(
-        'Cannot set appointment to a past date',
-      );
+      throw new BadRequestException('Cannot set appointment to a past date');
     }
 
     // Create session_time
     const sessionDateTime = new Date(newDate);
     sessionDateTime.setUTCHours(startTime24.hours, startTime24.minutes, 0, 0);
 
+    // Check for time conflicts before sending custom offer
+    const conflict = await this.checkTimeConflict(
+      coachId,
+      booking.user_id,
+      newDate,
+      sessionDateTime,
+      durationMinutes,
+      bookingId, // Exclude current booking
+    );
+
+    if (conflict.hasConflict) {
+      throw new ConflictException(
+        `Time slot conflict: ${conflict.conflictWith === 'coach' ? 'Coach' : 'Athlete'} already has a booking at this time`,
+      );
+    }
+
     // Calculate pricing
     // Base price per session from booking or coach profile
     const basePricePerSession =
-      Number(booking.session_price) ||
-      Number(coachProfile.session_price) ||
-      55;
+      Number(booking.session_price) || Number(coachProfile.session_price) || 55;
 
     // Total amount = base price per session × number of members
     const totalAmount = basePricePerSession * numberOfMembers;
 
-    // Paid amount (from successful payment transaction if available)
+    // Paid amount (from authorized payment transaction if available)
     let paidAmount = 0;
     if (booking.payment_transaction_id) {
       const tx = await this.prisma.paymentTransaction.findUnique({
         where: { id: booking.payment_transaction_id },
       });
-      if (tx && tx.status === 'succeeded' && tx.paid_amount) {
-        paidAmount = Number(tx.paid_amount);
+      if (tx && tx.status === 'authorized' && tx.amount) {
+        paidAmount = Number(tx.amount);
       }
     }
 
@@ -2870,7 +3157,7 @@ export class BookingsService {
     await this.createNotification(
       booking.user_id,
       `Custom offer received: ${customOfferDto.title || 'Group Session'} for ${numberOfMembers} members. Total: $${totalAmount}`,
-      'booking',
+      NotificationType.CUSTOM_OFFER_RECEIVED,
       coachId,
       booking.id,
     );
@@ -2906,7 +3193,6 @@ export class BookingsService {
   ) {
     if (!coachId) throw new BadRequestException('Coach ID is required');
     if (!bookingId) throw new BadRequestException('Booking ID is required');
-    if (!token) throw new BadRequestException('Validation token is required');
 
     const coachProfile = await this.prisma.coachProfile.findUnique({
       where: { user_id: coachId },
@@ -2922,24 +3208,26 @@ export class BookingsService {
     });
     if (!booking) throw new NotFoundException('Booking not found');
 
-    if (!booking.validation_token || !booking.token_expires_at)
+    // Check if all sessions are already completed
+    if (
+      booking.number_of_sessions &&
+      booking.total_completed_session >= booking.number_of_sessions
+    ) {
       throw new BadRequestException(
-        'No validation token available for this booking',
+        'All sessions for this booking have been completed',
       );
-    const now = new Date();
-    if (new Date(booking.token_expires_at) < now)
-      throw new BadRequestException('Validation token has expired');
-    if (booking.validation_token !== token)
-      throw new BadRequestException('Invalid validation token');
+    }
 
-    if (booking.status === 'COMPLETED') {
-      throw new BadRequestException('Booking is already completed');
+    // For single-session bookings, check if already completed
+    if (!booking.number_of_sessions && booking.status === 'COMPLETED') {
+      throw new BadRequestException('This booking has already been validated');
     }
 
     if (!booking.payment_transaction_id) {
       throw new BadRequestException('Payment transaction not found');
     }
 
+    // Fetch both payment transactions (initial booking + optional custom offer)
     const paymentTx = await this.prisma.paymentTransaction.findUnique({
       where: { id: booking.payment_transaction_id },
     });
@@ -2948,12 +3236,65 @@ export class BookingsService {
       throw new BadRequestException('Payment intent not found');
     }
 
+    // Fetch custom offer payment transaction if exists
+    let customOfferTx = null;
+    if (booking.custom_offer_payment_transaction_id) {
+      customOfferTx = await this.prisma.paymentTransaction.findUnique({
+        where: { id: booking.custom_offer_payment_transaction_id },
+      });
+    }
+
+    const priorTransferFailed =
+      paymentTx.transfer_status === 'failed' ||
+      (customOfferTx && customOfferTx.transfer_status === 'failed');
+
+    if (!priorTransferFailed) {
+      if (!token) throw new BadRequestException('Validation token is required');
+      if (!booking.validation_token || !booking.token_expires_at)
+        throw new BadRequestException(
+          'No validation token available for this booking',
+        );
+      const now = new Date();
+      if (new Date(booking.token_expires_at) < now)
+        throw new BadRequestException('Validation token has expired');
+      if (booking.validation_token !== token)
+        throw new BadRequestException('Invalid validation token');
+    } else if (booking.validation_token && token) {
+      if (booking.validation_token !== token)
+        throw new BadRequestException('Invalid validation token');
+    }
+
     if (!coachProfile.stripe_account_id) {
       throw new BadRequestException(
         'Coach payout account is not connected. Please complete Stripe onboarding.',
       );
     }
 
+    // Verify Stripe account is valid and ready for transfers
+    try {
+      const account = await StripePayment.getAccountDetails(
+        coachProfile.stripe_account_id,
+      );
+
+      if (!account.charges_enabled || !account.payouts_enabled) {
+        this.logger.warn(
+          `Coach Stripe account not fully enabled: charges_enabled=${account.charges_enabled}, payouts_enabled=${account.payouts_enabled}`,
+        );
+        throw new BadRequestException(
+          'Coach payout account is not fully activated. Please complete Stripe verification.',
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Failed to verify coach Stripe account ${coachProfile.stripe_account_id}:`,
+        error,
+      );
+      throw new BadRequestException(
+        'Unable to verify coach payout account. Please contact support.',
+      );
+    }
+
+    // Capture initial payment intent
     const intent = await StripePayment.retrievePaymentIntent(
       paymentTx.reference_number,
     );
@@ -2963,19 +3304,56 @@ export class BookingsService {
         ? intent
         : await StripePayment.capturePaymentIntent(paymentTx.reference_number);
 
-    const payoutAmount = paymentTx.amount
-      ? Number(paymentTx.amount)
-      : booking.total_amount
-        ? Number(booking.total_amount)
-        : booking.session_price
-          ? Number(booking.session_price)
-          : 0;
-    const payoutCurrency =
-      paymentTx.currency || booking.currency || 'USD';
+    // Capture custom offer payment intent if exists
+    let capturedCustomOffer = null;
+    if (customOfferTx && customOfferTx.reference_number) {
+      const customOfferIntent = await StripePayment.retrievePaymentIntent(
+        customOfferTx.reference_number,
+      );
+
+      capturedCustomOffer =
+        customOfferIntent.status === 'succeeded'
+          ? customOfferIntent
+          : await StripePayment.capturePaymentIntent(
+              customOfferTx.reference_number,
+            );
+    }
+
+    // Calculate payout: per-session for packages, full amount for single sessions
+    let basePayoutAmount = paymentTx.amount ? Number(paymentTx.amount) : 0;
+    let customOfferPayoutAmount = 0;
+
+    if (capturedCustomOffer) {
+      customOfferPayoutAmount = customOfferTx?.amount
+        ? Number(customOfferTx.amount)
+        : 0;
+    }
+
+    // For package bookings, divide by number of sessions; for single sessions, use full amount
+    let payoutAmount = basePayoutAmount;
+    let customOfferPayout = customOfferPayoutAmount;
+
+    if (booking.number_of_sessions && booking.number_of_sessions > 0) {
+      // Per-session payout for packages
+      payoutAmount = basePayoutAmount / booking.number_of_sessions;
+      customOfferPayout = customOfferPayoutAmount / booking.number_of_sessions;
+    }
+
+    payoutAmount += customOfferPayout;
+
+    const payoutCurrency = paymentTx.currency || booking.currency || 'USD';
 
     let transferReference: string | undefined;
     let transferStatus: string | undefined;
+    let transferError: string | undefined;
+
     try {
+      const logMessage = booking.number_of_sessions
+        ? `Creating transfer for coach ${coachProfile.stripe_account_id}: ${payoutAmount} ${payoutCurrency} (Session ${(booking.total_completed_session || 0) + 1}/${booking.number_of_sessions})`
+        : `Creating transfer for coach ${coachProfile.stripe_account_id}: ${payoutAmount} ${payoutCurrency}`;
+
+      this.logger.log(logMessage);
+
       const transfer = await StripePayment.createTransfer(
         coachProfile.stripe_account_id,
         payoutAmount,
@@ -2983,22 +3361,77 @@ export class BookingsService {
       );
       transferReference = transfer.id;
       transferStatus = 'created';
+
+      this.logger.log(`Transfer created successfully: ${transferReference}`);
     } catch (error) {
       transferStatus = 'failed';
-      console.error('Transfer failed:', error);
+      transferError = error instanceof Error ? error.message : String(error);
+
+      this.logger.error(
+        `Transfer failed for booking ${bookingId}:`,
+        error instanceof Error ? error.stack : error,
+      );
+
+      // Log detailed error information
+      this.logger.error('Transfer failure details:', {
+        coachId,
+        stripe_account_id: coachProfile.stripe_account_id,
+        payoutAmount,
+        payoutCurrency,
+        bookingId,
+        error: transferError,
+      });
     }
 
-    // mark booking completed and clear token (single-use)
+    // Determine booking status based on transfer success and booking type
+    let finalStatus: 'CONFIRMED' | 'COMPLETED' = 'CONFIRMED';
+    let finalCompletedSessions = booking.total_completed_session || 0;
+
+    if (transferStatus === 'created') {
+      // Only increment if transfer succeeded
+      finalCompletedSessions += 1;
+
+      // Check if this is a package booking or single session
+      if (booking.number_of_sessions) {
+        // Package booking: only mark COMPLETED when all sessions are done
+        finalStatus =
+          finalCompletedSessions >= booking.number_of_sessions
+            ? 'COMPLETED'
+            : 'CONFIRMED';
+      } else {
+        // Single-session booking: mark COMPLETED after first validation
+        finalStatus = 'COMPLETED';
+      }
+    } else {
+      // Transfer failed - keep CONFIRMED
+      finalStatus = 'CONFIRMED';
+    }
+
+    // Update booking - sessions increment, status conditional on package type
     const updated = await this.prisma.booking.update({
       where: { id: bookingId },
       data: {
-        status: 'COMPLETED',
-        validation_token: null,
-        token_expires_at: null,
-        total_completed_session: (booking.total_completed_session || 0) + 1,
+        status: finalStatus,
+        validation_token:
+          // For package bookings with remaining sessions: generate new token
+          transferStatus === 'created' &&
+          booking.number_of_sessions &&
+          finalCompletedSessions < booking.number_of_sessions
+            ? String(Math.floor(100000 + Math.random() * 900000)) // 6-digit token
+            : // For all-completed packages or single-session bookings: clear token
+              null,
+        // Set token expiration 30 days from now (for next session validation)
+        token_expires_at:
+          transferStatus === 'created' &&
+          booking.number_of_sessions &&
+          finalCompletedSessions < booking.number_of_sessions
+            ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days
+            : null,
+        total_completed_session: finalCompletedSessions,
       },
     });
 
+    // Update initial payment transaction
     await this.prisma.paymentTransaction.update({
       where: { id: booking.payment_transaction_id },
       data: {
@@ -3013,31 +3446,109 @@ export class BookingsService {
       },
     });
 
-    // notify athlete about completion
-    await this.createNotification(
-      booking.user_id,
-      'Your session has been validated and marked as completed.',
-      'booking',
-      coachId,
-      booking.id,
-    );
+    // Update custom offer payment transaction if exists
+    if (customOfferTx && capturedCustomOffer) {
+      await this.prisma.paymentTransaction.update({
+        where: { id: booking.custom_offer_payment_transaction_id! },
+        data: {
+          status:
+            capturedCustomOffer.status === 'succeeded'
+              ? 'captured'
+              : capturedCustomOffer.status,
+          paid_amount: capturedCustomOffer.amount_received
+            ? capturedCustomOffer.amount_received / 100
+            : undefined,
+          paid_currency: capturedCustomOffer.currency,
+          raw_status: capturedCustomOffer.status,
+          transfer_reference: transferReference,
+          transfer_status: transferStatus,
+        },
+      });
+    }
 
-    // notify coach confirmation
-    await this.createNotification(
-      coachId,
-      'Session has been validated and marked as completed.',
-      'booking',
-      booking.user_id,
-      booking.id,
-    );
+    // Notify based on transfer status
+    if (transferStatus === 'created') {
+      // Transfer succeeded - session validated
+      const isPackage = booking.number_of_sessions;
+      const sessionsMessage = isPackage
+        ? `Session ${finalCompletedSessions}/${booking.number_of_sessions} completed`
+        : 'Session completed';
+
+      const payoutMessage = isPackage
+        ? `$${payoutAmount.toFixed(2)} transferred (${payoutAmount.toFixed(2)} × ${booking.number_of_sessions} sessions)`
+        : `$${payoutAmount.toFixed(2)} transferred`;
+
+      await this.createNotification(
+        booking.user_id,
+        `Your ${sessionsMessage}. ${payoutMessage} transferred to coach.`,
+        NotificationType.SESSION_COMPLETED,
+        coachId,
+        booking.id,
+      );
+
+      await this.createNotification(
+        coachId,
+        `${sessionsMessage}. ${payoutMessage} transferred to your connected account.`,
+        NotificationType.SESSION_COMPLETED,
+        booking.user_id,
+        booking.id,
+      );
+    } else {
+      // Transfer failed - payment captured but pending transfer
+      await this.createNotification(
+        booking.user_id,
+        'Your session has been validated. Payment captured successfully.',
+        NotificationType.BOOKING_COMPLETED,
+        coachId,
+        booking.id,
+      );
+
+      await this.createNotification(
+        coachId,
+        'Session validated but payout transfer failed. Support has been notified.',
+        NotificationType.BOOKING_COMPLETED,
+        booking.user_id,
+        booking.id,
+      );
+
+      // Notify admin/support about transfer failure
+      this.logger.error(
+        `CRITICAL: Transfer failed for booking ${bookingId}. Manual intervention required.`,
+      );
+    }
+
+    // Calculate total payout for all sessions
+    const totalPayoutForAllSessions = booking.number_of_sessions
+      ? payoutAmount * booking.number_of_sessions
+      : payoutAmount;
 
     return {
+      statusCode: transferStatus === 'failed' ? 202 : 201,
       message:
         transferStatus === 'failed'
-          ? 'Booking validated. Payout transfer failed and needs retry.'
-          : 'Booking validated and marked as completed',
-      booking: updated,
-      transfer_status: transferStatus,
+          ? 'Payment captured successfully, but transfer to coach failed. Booking remains CONFIRMED until transfer succeeds. Support has been notified.'
+          : booking.number_of_sessions
+            ? `Session ${finalCompletedSessions}/${booking.number_of_sessions} validated. $${payoutAmount.toFixed(2)} transferred. ${finalCompletedSessions >= booking.number_of_sessions ? 'All sessions completed!' : 'More sessions to validate.'}`
+            : 'Session validated and marked as COMPLETED. Payout transferred to coach successfully.',
+      data: {
+        booking: updated,
+        transfer_status: transferStatus,
+        transfer_error: transferError,
+        transfer_reference: transferReference,
+        payout_info: {
+          payout_per_session: payoutAmount,
+          total_payout_for_all_sessions: booking.number_of_sessions
+            ? payoutAmount * booking.number_of_sessions
+            : payoutAmount,
+          currency: payoutCurrency,
+          is_package_booking: !!booking.number_of_sessions,
+        },
+        requires_manual_intervention: transferStatus === 'failed',
+        sessions_completed: finalCompletedSessions,
+        sessions_remaining: booking.number_of_sessions
+          ? booking.number_of_sessions - finalCompletedSessions
+          : 0,
+      },
     };
   }
 
@@ -3077,7 +3588,7 @@ export class BookingsService {
     await this.createNotification(
       coachId,
       `You have successfully created a new session package: ${createSessionPackageDto.title}`,
-      'package',
+      NotificationType.SESSION_PACKAGE_PURCHASED,
       coachId,
       sessionPackage.id,
     );
@@ -3166,7 +3677,7 @@ export class BookingsService {
     await this.createNotification(
       coachId,
       `You have successfully updated the session package: ${updateSessionPackageDto.title}`,
-      'package',
+      NotificationType.SESSION_PACKAGE_PURCHASED,
       coachId,
       updatedSessionPackage.id,
     );
@@ -3203,7 +3714,7 @@ export class BookingsService {
     await this.createNotification(
       coachId,
       `You have successfully deleted the session package: ${packages.title}`,
-      'package',
+      NotificationType.SESSION_PACKAGE_PURCHASED,
       coachId,
       packages.id,
     );
@@ -3472,6 +3983,157 @@ export class BookingsService {
         total_reviews: ratingCount,
       },
       sessionsPackage: packages,
+    };
+  }
+
+  async getAthleteDetails(coachId: string, athleteId: string) {
+    if (!coachId) throw new BadRequestException('Coach ID is required');
+    if (!athleteId) throw new BadRequestException('Athlete ID is required');
+
+    // Verify coach exists
+    const coach = await this.prisma.user.findUnique({
+      where: { id: coachId },
+    });
+    if (!coach || coach.type !== 'coach') {
+      throw new BadRequestException('Invalid coach ID');
+    }
+
+    // Fetch athlete details
+    const athlete = await this.prisma.user.findUnique({
+      where: { id: athleteId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        avatar: true,
+        phone_number: true,
+        bio: true,
+        objectives: true,
+        sports: true,
+        age: true,
+        location: true,
+        type: true,
+      },
+    });
+    if (!athlete) {
+      throw new NotFoundException('Athlete not found');
+    }
+
+    // Verify coach-athlete relationship (check if they have completed bookings together)
+    const coachingRelationship = await this.prisma.booking.findFirst({
+      where: {
+        coach_id: coachId,
+        user_id: athleteId,
+        status: 'COMPLETED',
+      },
+    });
+
+    if (!coachingRelationship) {
+      throw new NotFoundException(
+        'No coaching relationship found between this coach and athlete',
+      );
+    }
+
+    // Fetch athlete's goals assigned to this coach + other goals
+    const [athleteGoals, sessionHistory] = await Promise.all([
+      // Fetch athlete's current goals
+      this.prisma.goal.findMany({
+        where: { user_id: athleteId },
+        select: {
+          id: true,
+          title: true,
+          current_value: true,
+          target_value: true,
+          target_date: true,
+          frequency_per_week: true,
+          motivation: true,
+          progress_percent: true,
+          coach_id: true,
+          created_at: true,
+          updated_at: true,
+        },
+        orderBy: { created_at: 'desc' },
+      }),
+      // Fetch athlete's completed session history with this specific coach
+      this.prisma.booking.findMany({
+        where: {
+          coach_id: coachId,
+          user_id: athleteId,
+          status: 'COMPLETED',
+        },
+        select: {
+          id: true,
+          appointment_date: true,
+          updated_at: true,
+          duration_minutes: true,
+          session_price: true,
+          currency: true,
+          number_of_sessions: true,
+          total_completed_session: true,
+          created_at: true,
+          sessionPackage: {
+            select: {
+              id: true,
+              title: true,
+              description: true,
+            },
+          },
+        },
+        orderBy: { appointment_date: 'desc' },
+      }),
+    ]);
+
+    // Enrich goals with coach assignment indicator
+    const enrichedGoals = athleteGoals.map((goal) => ({
+      id: goal.id,
+      title: goal.title,
+      current_value: goal.current_value,
+      target_value: goal.target_value,
+      target_date: goal.target_date,
+      frequency_per_week: goal.frequency_per_week,
+      motivation: goal.motivation,
+      progress_percent: goal.progress_percent,
+      assigned_to_coach: goal.coach_id === coachId,
+      created_at: goal.created_at,
+      updated_at: goal.updated_at,
+    }));
+
+    // Calculate session statistics with this coach
+    const totalSessions = sessionHistory.length;
+    const lastSessionDate =
+      sessionHistory.length > 0 ? sessionHistory[0].appointment_date : null;
+
+    // Enrich session history with clear completion info
+    const enrichedSessionHistory = sessionHistory.map((session) => ({
+      id: session.id,
+      title: session.sessionPackage
+        ? session.sessionPackage.title
+        : 'Single Session',
+      status:
+        session.total_completed_session >= session.number_of_sessions
+          ? 'COMPLETED'
+          : 'PARTIALLY_COMPLETED',
+      appointment_date: session.appointment_date,
+      completed_at: session.updated_at,
+      duration_minutes: session.duration_minutes,
+      session_price: session.session_price,
+      currency: session.currency,
+      number_of_sessions: session.number_of_sessions,
+      total_completed_session: session.total_completed_session,
+      created_at: session.created_at,
+      sessionPackage: session.sessionPackage,
+    }));
+
+    return {
+      success: true,
+      message: 'Athlete details retrieved successfully',
+      athlete,
+      stats: {
+        total_sessions_with_coach: totalSessions,
+        last_session_date: lastSessionDate,
+      },
+      currentGoals: enrichedGoals,
+      previousSessions: enrichedSessionHistory,
     };
   }
 

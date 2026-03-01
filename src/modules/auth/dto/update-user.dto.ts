@@ -101,6 +101,20 @@ export class UpdateUserDto extends PartialType(CreateUserDto) {
   })
   primary_specialty?: string;
 
+  @IsOptional()
+  @ApiProperty({
+    description: 'Comma separated sports or JSON string',
+    example: 'Swimming,Running',
+  })
+  sports?: string;
+
+  @IsOptional()
+  @ApiProperty({
+    description: 'Comma separated goals or JSON string',
+    example: 'Lose weight,Build muscle',
+  })
+  goals?: string;
+
   // coach-specific updatable fields
   @IsOptional()
   @ApiProperty({ required: false })
@@ -121,6 +135,4 @@ export class UpdateUserDto extends PartialType(CreateUserDto) {
   @IsOptional()
   @ApiProperty({ required: false })
   hourly_currency?: string;
-
-  
 }

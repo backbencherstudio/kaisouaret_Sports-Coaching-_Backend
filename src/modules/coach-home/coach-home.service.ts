@@ -10,8 +10,34 @@ export class CoachHomeService {
     const n = Number(value);
     if (isNaN(n)) return '0%';
     // show up to 2 decimal places, remove trailing zeros
-    const s = n.toFixed(2).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1');
+    const s = n
+      .toFixed(2)
+      .replace(/\.00$/, '')
+      .replace(/(\.\d)0$/, '$1');
     return `${s}%`;
+  }
+
+  async getTotalRevenue(coachId: string) {
+    if (!coachId) return { error: 'Coach ID is required' };
+
+    const completed = await this.prisma.booking.findMany({
+      where: { coach_id: coachId, status: 'COMPLETED' },
+      select: { session_price: true, total_amount: true },
+    });
+    let totalRevenue = 0;
+    for (const b of completed) {
+      const price = b.total_amount
+        ? Number(b.total_amount as any)
+        : b.session_price
+          ? Number(b.session_price as any)
+          : 0;
+      totalRevenue += price;
+    }
+
+    return {
+      totalRevenue: +totalRevenue.toFixed(2),
+      totalSessions: completed.length,
+    };
   }
 
   // Overview metrics: total revenue, net profit, recurring revenue, avg revenue + trends
@@ -61,8 +87,8 @@ export class CoachHomeService {
       const price = b.total_amount
         ? Number(b.total_amount as any)
         : b.session_price
-        ? Number(b.session_price as any)
-        : 0;
+          ? Number(b.session_price as any)
+          : 0;
       totalRevenue += price;
       totalSessions += 1;
       const dt = new Date(b.appointment_date);
@@ -103,8 +129,8 @@ export class CoachHomeService {
           const price = b.total_amount
             ? Number(b.total_amount as any)
             : b.session_price
-            ? Number(b.session_price as any)
-            : 0;
+              ? Number(b.session_price as any)
+              : 0;
           recurringRevenue += price;
         }
       }
@@ -118,13 +144,15 @@ export class CoachHomeService {
       const price = b.total_amount
         ? Number(b.total_amount as any)
         : b.session_price
-        ? Number(b.session_price as any)
-        : 0;
+          ? Number(b.session_price as any)
+          : 0;
       if (dt >= start30 && dt <= now) {
-        if ((userCompletedDates[b.user_id] || []).length > 1) last30Recurring += price;
+        if ((userCompletedDates[b.user_id] || []).length > 1)
+          last30Recurring += price;
       }
       if (dt >= prev30Start && dt < start30) {
-        if ((userCompletedDates[b.user_id] || []).length > 1) prev30Recurring += price;
+        if ((userCompletedDates[b.user_id] || []).length > 1)
+          prev30Recurring += price;
       }
     }
     const recurringTrend =
@@ -132,21 +160,35 @@ export class CoachHomeService {
         ? last30Recurring > 0
           ? 100
           : 0
-        : +(((last30Recurring - prev30Recurring) / prev30Recurring) * 100).toFixed(2);
+        : +(
+            ((last30Recurring - prev30Recurring) / prev30Recurring) *
+            100
+          ).toFixed(2);
 
-    const avgRevenue = totalSessions > 0 ? +(totalRevenue / totalSessions).toFixed(2) : 0;
+    const avgRevenue =
+      totalSessions > 0 ? +(totalRevenue / totalSessions).toFixed(2) : 0;
     const avgLast30 = last30Sessions > 0 ? last30Revenue / last30Sessions : 0;
     const avgPrev30 = prev30Sessions > 0 ? prev30Revenue / prev30Sessions : 0;
     const avgRevenueTrend =
-      avgPrev30 === 0 ? (avgLast30 > 0 ? 100 : 0) : +(((avgLast30 - avgPrev30) / avgPrev30) * 100).toFixed(2);
+      avgPrev30 === 0
+        ? avgLast30 > 0
+          ? 100
+          : 0
+        : +(((avgLast30 - avgPrev30) / avgPrev30) * 100).toFixed(2);
 
     // net profit — assume platform fee percent from env (default 25%)
-    const feePercent = Number(process.env.PLATFORM_FEE_PERCENT ?? process.env.FEES_PERCENT ?? 0.25);
+    const feePercent = Number(
+      process.env.PLATFORM_FEE_PERCENT ?? process.env.FEES_PERCENT ?? 0.25,
+    );
     const netProfit = +(totalRevenue * (1 - feePercent)).toFixed(2);
     const netProfitTrend = revenueTrend;
 
     const averageRating =
-      ratingCount > 0 ? +(ratingSum / ratingCount).toFixed(2) : coachProfile.avg_rating ? Number(coachProfile.avg_rating) : null;
+      ratingCount > 0
+        ? +(ratingSum / ratingCount).toFixed(2)
+        : coachProfile.avg_rating
+          ? Number(coachProfile.avg_rating)
+          : null;
 
     return {
       totalRevenue,
@@ -207,11 +249,19 @@ export class CoachHomeService {
 
     const completed = await this.prisma.booking.findMany({
       where: { coach_id: coachId, status: 'COMPLETED' },
-      select: { user_id: true },
+      select: { user_id: true, appointment_date: true },
     });
 
     const counts: Record<string, number> = {};
-    for (const b of completed) counts[b.user_id] = (counts[b.user_id] || 0) + 1;
+    const lastDates: Record<string, Date> = {};
+
+    for (const b of completed) {
+      counts[b.user_id] = (counts[b.user_id] || 0) + 1;
+      const dt = new Date(b.appointment_date);
+      if (!lastDates[b.user_id] || dt > lastDates[b.user_id]) {
+        lastDates[b.user_id] = dt;
+      }
+    }
 
     const entries = Object.entries(counts)
       .map(([user_id, count]) => ({ user_id, count }))
@@ -228,6 +278,7 @@ export class CoachHomeService {
               name: true,
               avatar: true,
               email: true,
+              bio: true,
               phone_number: true,
             },
           })
@@ -239,6 +290,7 @@ export class CoachHomeService {
     return entries.map((e) => ({
       customer: userMap[e.user_id] || null,
       sessions: e.count,
+      lastSessionDate: lastDates[e.user_id] || null,
     }));
   }
 
@@ -255,9 +307,16 @@ export class CoachHomeService {
     prev30Start.setHours(0, 0, 0, 0);
 
     // total counts
-    const totalBookings = await this.prisma.booking.count({ where: { coach_id: coachId } });
-    const completedBookings = await this.prisma.booking.count({ where: { coach_id: coachId, status: 'COMPLETED' } });
-    const completionRate = totalBookings > 0 ? +((completedBookings / totalBookings) * 100).toFixed(2) : 0;
+    const totalBookings = await this.prisma.booking.count({
+      where: { coach_id: coachId },
+    });
+    const completedBookings = await this.prisma.booking.count({
+      where: { coach_id: coachId, status: 'COMPLETED' },
+    });
+    const completionRate =
+      totalBookings > 0
+        ? +((completedBookings / totalBookings) * 100).toFixed(2)
+        : 0;
 
     // fetch completed bookings in the 60-day window
     const completed = await this.prisma.booking.findMany({
@@ -266,7 +325,13 @@ export class CoachHomeService {
         status: 'COMPLETED',
         appointment_date: { gte: prev30Start, lte: now },
       },
-      select: { session_price: true, total_amount: true, appointment_date: true, rating: true, user_id: true },
+      select: {
+        session_price: true,
+        total_amount: true,
+        appointment_date: true,
+        rating: true,
+        user_id: true,
+      },
     });
 
     let last30Earnings = 0;
@@ -280,7 +345,11 @@ export class CoachHomeService {
 
     for (const b of completed) {
       const dt = new Date(b.appointment_date);
-      const price = b.total_amount ? Number(b.total_amount as any) : b.session_price ? Number(b.session_price as any) : 0;
+      const price = b.total_amount
+        ? Number(b.total_amount as any)
+        : b.session_price
+          ? Number(b.session_price as any)
+          : 0;
       if (dt >= start30 && dt <= now) {
         last30Earnings += price;
         last30Completed += 1;
@@ -299,22 +368,66 @@ export class CoachHomeService {
     }
 
     // client retention: users in last30 who also had completed bookings in prev30 divided by unique customers in prev30
-    const usersLast30 = new Set(completed.filter((b) => new Date(b.appointment_date) >= start30 && new Date(b.appointment_date) <= now).map((b) => (b as any).user_id));
-    const usersPrev30 = new Set(completed.filter((b) => new Date(b.appointment_date) >= prev30Start && new Date(b.appointment_date) < start30).map((b) => (b as any).user_id));
-    const returning = Array.from(usersLast30).filter((u) => usersPrev30.has(u)).length;
-    const clientRetentionRate = usersPrev30.size > 0 ? +((returning / usersPrev30.size) * 100).toFixed(2) : 0;
+    const usersLast30 = new Set(
+      completed
+        .filter(
+          (b) =>
+            new Date(b.appointment_date) >= start30 &&
+            new Date(b.appointment_date) <= now,
+        )
+        .map((b) => (b as any).user_id),
+    );
+    const usersPrev30 = new Set(
+      completed
+        .filter(
+          (b) =>
+            new Date(b.appointment_date) >= prev30Start &&
+            new Date(b.appointment_date) < start30,
+        )
+        .map((b) => (b as any).user_id),
+    );
+    const returning = Array.from(usersLast30).filter((u) =>
+      usersPrev30.has(u),
+    ).length;
+    const clientRetentionRate =
+      usersPrev30.size > 0
+        ? +((returning / usersPrev30.size) * 100).toFixed(2)
+        : 0;
 
     // session completion rate for last 30 days (completed / total in that window). We approximate using counts
     const totalWindowBookings = last30Completed + prev30Completed;
-    const sessionCompletionRate = totalWindowBookings > 0 ? +((last30Completed / totalWindowBookings) * 100).toFixed(2) : completionRate;
+    const sessionCompletionRate =
+      totalWindowBookings > 0
+        ? +((last30Completed / totalWindowBookings) * 100).toFixed(2)
+        : completionRate;
 
-    const avgRatingLast30 = last30RatingCount > 0 ? +(last30RatingSum / last30RatingCount).toFixed(2) : null;
-    const avgRatingPrev30 = prev30RatingCount > 0 ? +(prev30RatingSum / prev30RatingCount).toFixed(2) : null;
-    const ratingTrend = avgRatingPrev30 === null ? (avgRatingLast30 !== null ? +((avgRatingLast30 - 0) * 100).toFixed(2) : 0) : avgRatingLast30 !== null ? +(((avgRatingLast30 - avgRatingPrev30) / avgRatingPrev30) * 100).toFixed(2) : 0;
+    const avgRatingLast30 =
+      last30RatingCount > 0
+        ? +(last30RatingSum / last30RatingCount).toFixed(2)
+        : null;
+    const avgRatingPrev30 =
+      prev30RatingCount > 0
+        ? +(prev30RatingSum / prev30RatingCount).toFixed(2)
+        : null;
+    const ratingTrend =
+      avgRatingPrev30 === null
+        ? avgRatingLast30 !== null
+          ? +((avgRatingLast30 - 0) * 100).toFixed(2)
+          : 0
+        : avgRatingLast30 !== null
+          ? +(
+              ((avgRatingLast30 - avgRatingPrev30) / avgRatingPrev30) *
+              100
+            ).toFixed(2)
+          : 0;
 
     // response time: approximate using booking updated_at - created_at for bookings confirmed/completed in the 60-day window
     const bookingsForResponse = await this.prisma.booking.findMany({
-      where: { coach_id: coachId, status: { in: ['CONFIRMED', 'COMPLETED'] }, updated_at: { gte: prev30Start, lte: now } },
+      where: {
+        coach_id: coachId,
+        status: { in: ['CONFIRMED', 'COMPLETED'] },
+        updated_at: { gte: prev30Start, lte: now },
+      },
       select: { created_at: true, updated_at: true },
     });
     let responseSumHours = 0;
@@ -332,10 +445,20 @@ export class CoachHomeService {
       if (dt >= start30 && dt <= now) responseLast30 += hours;
       if (dt >= prev30Start && dt < start30) responsePrev30 += hours;
     }
-    const avgResponseHours = responseCount > 0 ? +(responseSumHours / responseCount).toFixed(2) : null;
+    const avgResponseHours =
+      responseCount > 0 ? +(responseSumHours / responseCount).toFixed(2) : null;
     let responseTrend = 0;
-    if (responsePrev30 > 0) responseTrend = +(((responseLast30 / (responsePrev30 || 1) - 1) * 100).toFixed(2));
-    const responseStability = Math.abs(responseTrend) < 5 ? 'Stable' : responseTrend > 0 ? 'Slower' : 'Faster';
+    if (responsePrev30 > 0)
+      responseTrend = +(
+        (responseLast30 / (responsePrev30 || 1) - 1) *
+        100
+      ).toFixed(2);
+    const responseStability =
+      Math.abs(responseTrend) < 5
+        ? 'Stable'
+        : responseTrend > 0
+          ? 'Slower'
+          : 'Faster';
 
     return {
       clientRetentionRate,
@@ -347,6 +470,20 @@ export class CoachHomeService {
       responseTimeHours: avgResponseHours,
       responseTimeTrendPercent: this.formatPercent(responseTrend),
       responseTimeStability: responseStability,
+    };
+  }
+
+  async getLanguagesAndExperience(coachId: string) {
+    if (!coachId) return { error: 'Coach ID is required' };
+
+    const profile = await this.prisma.coachProfile.findUnique({
+      where: { user_id: coachId },
+      select: { languages: true, experience_level: true },
+    });
+
+    return {
+      languages: profile?.languages || [],
+      experienceLevel: profile?.experience_level || null,
     };
   }
 }

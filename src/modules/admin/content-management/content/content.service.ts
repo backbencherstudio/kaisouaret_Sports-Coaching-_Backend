@@ -33,11 +33,11 @@ export class ContentService {
               rating_count: true,
               is_verified: true,
               subscription_active: true,
-            },
-          },
-          _count: {
-            select: {
-              bookings: true,
+              _count: {
+                select: {
+                  bookings: true, // Count sessions THIS coach has provided
+                },
+              },
             },
           },
         },
@@ -53,7 +53,7 @@ export class ContentService {
         status: coach.status === 1 ? 'Active' : 'Inactive',
         approved_at: coach.approved_at,
         created_at: coach.created_at,
-        session_count: coach._count.bookings,
+        session_count: coach.coach_profile?._count?.bookings || 0, // Sessions provided by this coach
         coach_profile: coach.coach_profile
           ? {
               id: coach.coach_profile.id,
@@ -63,7 +63,8 @@ export class ContentService {
               avg_rating: coach.coach_profile.avg_rating,
               rating_count: coach.coach_profile.rating_count,
               is_verified: coach.coach_profile.is_verified === 1,
-              subscription_active: coach.coach_profile.subscription_active === 1,
+              subscription_active:
+                coach.coach_profile.subscription_active === 1,
             }
           : null,
       }));
@@ -164,7 +165,7 @@ export class ContentService {
           },
           status: booking.status,
           validation_token: booking.validation_token,
-          is_validated: !!booking.validation_token,
+          is_validated: !booking.validation_token,
         };
       });
 
@@ -181,203 +182,210 @@ export class ContentService {
     }
   }
 
-  async getContentApprovalList() {
-    try {
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  // async getContentApprovalList() {
+  //   try {
+  //     const thirtyDaysAgo = new Date();
+  //     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-      const coachProfiles = await this.prisma.coachProfile.findMany({
-        where: {
-          updated_at: {
-            gte: thirtyDaysAgo,
-          },
-          user: {
-            deleted_at: null,
-          },
-        },
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              avatar: true,
-              bio: true,
-              approved_at: true,
-            },
-          },
-        },
-        orderBy: {
-          updated_at: 'desc',
-        },
-      });
-      const formattedContent = coachProfiles.map((profile) => {
-        const wasRecentlyUpdated = profile.updated_at > profile.created_at;
-        let updateType = 'Profile Update';
-        let description = 'Updated profile information';
-        
-        if (profile.certifications && profile.certifications.length > 0) {
-          updateType = 'New Specialization';
-          description = `${profile.certifications[profile.certifications.length - 1]} certification added`;
-        } else if (profile.user.bio) {
-          updateType = 'Bio Update';
-          description = `Updated professional bio${profile.certifications && profile.certifications.length > 0 ? ' with new certifications' : ''}...`;
-        } else if (profile.specialties && profile.specialties.length > 0) {
-          updateType = 'New Specialization';
-          description = `${profile.specialties[profile.specialties.length - 1]} specialization added`;
-        }
+  //     const coachProfiles = await this.prisma.coachProfile.findMany({
+  //       where: {
+  //         updated_at: {
+  //           gte: thirtyDaysAgo,
+  //         },
+  //         user: {
+  //           deleted_at: null,
+  //         },
+  //       },
+  //       include: {
+  //         user: {
+  //           select: {
+  //             id: true,
+  //             name: true,
+  //             email: true,
+  //             avatar: true,
+  //             bio: true,
+  //             approved_at: true,
+  //           },
+  //         },
+  //       },
+  //       orderBy: {
+  //         updated_at: 'desc',
+  //       },
+  //     });
+  //     const formattedContent = coachProfiles.map((profile) => {
+  //       let updateType = 'Profile Update';
+  //       let description = 'Updated profile information';
 
-        return {
-          id: profile.id,
-          user_id: profile.user.id,
-          title: `${profile.user.name || 'Unknown'} - ${updateType}`,
-          description: description,
-          coach_name: profile.user.name || 'N/A',
-          coach_email: profile.user.email || 'N/A',
-          coach_avatar: profile.user.avatar || null,
-          update_type: updateType,
-          updated_at: profile.updated_at,
-          created_at: profile.created_at,
-          is_pending: !profile.user.approved_at || wasRecentlyUpdated,
-          profile_data: {
-            primary_specialty: profile.primary_specialty,
-            specialties: profile.specialties,
-            certifications: profile.certifications,
-            experience_level: profile.experience_level,
-            bio: profile.user.bio,
-          },
-        };
-      });
-      const pendingContent = formattedContent.filter((item) => item.is_pending);
+  //       if (profile.certifications && profile.certifications.length > 0) {
+  //         updateType = 'New Specialization';
+  //         description = `${profile.certifications[profile.certifications.length - 1]} certification added`;
+  //       } else if (profile.user.bio) {
+  //         updateType = 'Bio Update';
+  //         description = `Updated professional bio${profile.certifications && profile.certifications.length > 0 ? ' with new certifications' : ''}...`;
+  //       } else if (profile.specialties && profile.specialties.length > 0) {
+  //         updateType = 'New Specialization';
+  //         description = `${profile.specialties[profile.specialties.length - 1]} specialization added`;
+  //       }
 
-      return {
-        success: true,
-        data: pendingContent,
-        total: pendingContent.length,
-      };
-    } catch (error: any) {
-      return {
-        success: false,
-        message: error.message || 'Failed to fetch content approval list',
-      };
-    }
-  }
+  //       return {
+  //         id: profile.id,
+  //         user_id: profile.user.id,
+  //         title: `${profile.user.name || 'Unknown'} - ${updateType}`,
+  //         description: description,
+  //         coach_name: profile.user.name || 'N/A',
+  //         coach_email: profile.user.email || 'N/A',
+  //         coach_avatar: profile.user.avatar || null,
+  //         update_type: updateType,
+  //         updated_at: profile.updated_at,
+  //         created_at: profile.created_at,
+  //         is_pending: !profile.user.approved_at, // Content is pending if not yet approved by admin
+  //         profile_data: {
+  //           primary_specialty: profile.primary_specialty,
+  //           specialties: profile.specialties,
+  //           certifications: profile.certifications,
+  //           experience_level: profile.experience_level,
+  //           bio: profile.user.bio,
+  //         },
+  //       };
+  //     });
+  //     const pendingContent = formattedContent.filter((item) => item.is_pending);
 
-  async approveContent(id: string, type: string = 'coach_profile') {
-    try {
-      if (type === 'coach_profile') {
-        const coachProfile = await this.prisma.coachProfile.findUnique({
-          where: { id },
-          select: { user_id: true },
-        });
+  //     return {
+  //       success: true,
+  //       data: pendingContent,
+  //       total: pendingContent.length,
+  //     };
+  //   } catch (error: any) {
+  //     return {
+  //       success: false,
+  //       message: error.message || 'Failed to fetch content approval list',
+  //     };
+  //   }
+  // }
 
-        if (!coachProfile) {
-          return {
-            success: false,
-            message: 'Coach profile not found',
-          };
-        }
+  // async approveContent(id: string, type: string = 'coach_profile') {
+  //   try {
+  //     if (type === 'coach_profile') {
+  //       const coachProfile = await this.prisma.coachProfile.findUnique({
+  //         where: { id },
+  //         select: { user_id: true },
+  //       });
 
-        await this.prisma.user.update({
-          where: { id: coachProfile.user_id },
-          data: { approved_at: new Date() },
-        });
+  //       if (!coachProfile) {
+  //         return {
+  //           success: false,
+  //           message: 'Coach profile not found',
+  //         };
+  //       }
 
-        return {
-          success: true,
-          message: 'Content approved successfully',
-        };
-      } else if (type === 'user') {
-        const user = await this.prisma.user.findUnique({
-          where: { id },
-        });
+  //       await this.prisma.user.update({
+  //         where: { id: coachProfile.user_id },
+  //         data: { approved_at: new Date() },
+  //       });
 
-        if (!user) {
-          return {
-            success: false,
-            message: 'User not found',
-          };
-        }
+  //       return {
+  //         success: true,
+  //         message: 'Content approved successfully',
+  //       };
+  //     } else if (type === 'user') {
+  //       const user = await this.prisma.user.findUnique({
+  //         where: { id },
+  //       });
 
-        await this.prisma.user.update({
-          where: { id },
-          data: { approved_at: new Date() },
-        });
+  //       if (!user) {
+  //         return {
+  //           success: false,
+  //           message: 'User not found',
+  //         };
+  //       }
 
-        return {
-          success: true,
-          message: 'Content approved successfully',
-        };
-      } else {
-        return {
-          success: false,
-          message: 'Invalid type. Use "coach_profile" or "user"',
-        };
-      }
-    } catch (error: any) {
-      return {
-        success: false,
-        message: error.message || 'Failed to approve content',
-      };
-    }
-  }
+  //       await this.prisma.user.update({
+  //         where: { id },
+  //         data: { approved_at: new Date() },
+  //       });
 
-  async rejectContent(id: string, type: string = 'coach_profile', reason?: string) {
-    try {
-      if (type === 'coach_profile') {
-        const coachProfile = await this.prisma.coachProfile.findUnique({
-          where: { id },
-          select: { user_id: true },
-        });
+  //       return {
+  //         success: true,
+  //         message: 'Content approved successfully',
+  //       };
+  //     } else {
+  //       return {
+  //         success: false,
+  //         message: 'Invalid type. Use "coach_profile" or "user"',
+  //       };
+  //     }
+  //   } catch (error: any) {
+  //     return {
+  //       success: false,
+  //       message: error.message || 'Failed to approve content',
+  //     };
+  //   }
+  // }
 
-        if (!coachProfile) {
-          return {
-            success: false,
-            message: 'Coach profile not found',
-          };
-        }
+  // async rejectContent(
+  //   id: string,
+  //   type: string = 'coach_profile',
+  //   reason?: string,
+  // ) {
+  //   try {
+  //     if (type === 'coach_profile') {
+  //       const coachProfile = await this.prisma.coachProfile.findUnique({
+  //         where: { id },
+  //         select: { user_id: true },
+  //       });
 
-        await this.prisma.user.update({
-          where: { id: coachProfile.user_id },
-          data: { approved_at: null },
-        });
+  //       if (!coachProfile) {
+  //         return {
+  //           success: false,
+  //           message: 'Coach profile not found',
+  //         };
+  //       }
 
-        return {
-          success: true,
-          message: reason ? `Content rejected: ${reason}` : 'Content rejected successfully',
-        };
-      } else if (type === 'user') {
-        const user = await this.prisma.user.findUnique({
-          where: { id },
-        });
+  //       await this.prisma.user.update({
+  //         where: { id: coachProfile.user_id },
+  //         data: { approved_at: null },
+  //       });
 
-        if (!user) {
-          return {
-            success: false,
-            message: 'User not found',
-          };
-        }
+  //       return {
+  //         success: true,
+  //         message: reason
+  //           ? `Content rejected: ${reason}`
+  //           : 'Content rejected successfully',
+  //       };
+  //     } else if (type === 'user') {
+  //       const user = await this.prisma.user.findUnique({
+  //         where: { id },
+  //       });
 
-        await this.prisma.user.update({
-          where: { id },
-          data: { approved_at: null },
-        });
+  //       if (!user) {
+  //         return {
+  //           success: false,
+  //           message: 'User not found',
+  //         };
+  //       }
 
-        return {
-          success: true,
-          message: reason ? `Content rejected: ${reason}` : 'Content rejected successfully',
-        };
-      } else {
-        return {
-          success: false,
-          message: 'Invalid type. Use "coach_profile" or "user"',
-        };
-      }
-    } catch (error: any) {
-      return {
-        success: false,
-        message: error.message || 'Failed to reject content',
-      };
-    }
-  }
+  //       await this.prisma.user.update({
+  //         where: { id },
+  //         data: { approved_at: null },
+  //       });
+
+  //       return {
+  //         success: true,
+  //         message: reason
+  //           ? `Content rejected: ${reason}`
+  //           : 'Content rejected successfully',
+  //       };
+  //     } else {
+  //       return {
+  //         success: false,
+  //         message: 'Invalid type. Use "coach_profile" or "user"',
+  //       };
+  //     }
+  //   } catch (error: any) {
+  //     return {
+  //       success: false,
+  //       message: error.message || 'Failed to reject content',
+  //     };
+  //   }
+  // }
 }

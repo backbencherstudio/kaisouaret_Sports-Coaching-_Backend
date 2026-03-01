@@ -8,12 +8,19 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GOALS_CONFIG, GOAL_ERROR_MESSAGES } from './goals.constants';
+import {
+  NotificationsService,
+  NotificationType,
+} from '../notifications/notifications.service';
 
 @Injectable()
 export class GoalsService {
   private readonly logger = new Logger(GoalsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationsService: NotificationsService,
+  ) {}
 
   /**
    * Validate that target date is valid (in future, within 5 years)
@@ -222,6 +229,31 @@ export class GoalsService {
         `Goal created: ${goal.id} for user ${userId} with title "${goal.title}"`,
       );
 
+      // Send goal created notification
+      try {
+        const user = await this.prisma.user.findUnique({
+          where: { id: userId },
+          select: { name: true },
+        });
+
+        if (user) {
+          await this.notificationsService.sendNotification({
+            type: NotificationType.GOAL_CREATED,
+            recipient_id: userId,
+            entity_id: goal.id,
+            variables: {
+              user_name: user.name,
+              goal_title: goal.title,
+              target_date: goal.target_date
+                ? new Date(goal.target_date).toISOString().split('T')[0]
+                : 'No deadline',
+            },
+          });
+        }
+      } catch (error) {
+        this.logger.error('Failed to send goal created notification:', error);
+      }
+
       return {
         success: true,
         message: 'Goal created successfully',
@@ -335,6 +367,62 @@ export class GoalsService {
         `Error updating goal ${goalId} for user ${userId}:`,
         error,
       );
+      throw error;
+    }
+  }
+
+  /**
+   * Get all coaches from bookings for a specific user
+   */
+  async getMyCoaches(userId: string) {
+    try {
+      if (!userId) {
+        throw new BadRequestException(GOAL_ERROR_MESSAGES.USER_ID_REQUIRED);
+      }
+
+      const bookings = await this.prisma.booking.findMany({
+        where: { user_id: userId },
+        select: {
+          id: true,
+          title: true,
+          coach_profile: {
+            select: {
+              user_id: true,
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  avatar: true,
+                  email: true,
+                  phone_number: true,
+                },
+              },
+            },
+          },
+        },
+        distinct: ['coach_id'], // Get unique coaches only
+      });
+
+      // Extract unique coaches
+      const coachesMap = new Map();
+      for (const booking of bookings) {
+        const coach = booking.coach_profile?.user;
+        if (coach && !coachesMap.has(coach.id)) {
+          coachesMap.set(coach.id, coach);
+        }
+      }
+
+      const coaches = Array.from(coachesMap.values());
+
+      this.logger.log(`Fetched ${coaches.length} coaches for user ${userId}`);
+
+      return {
+        success: true,
+        message: 'Coaches fetched successfully',
+        data: { coaches },
+      };
+    } catch (error) {
+      this.logger.error(`Error fetching coaches for user ${userId}:`, error);
       throw error;
     }
   }
