@@ -14,21 +14,33 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
-import { ApiOperation, ApiQuery, ApiResponse, ApiTags, ApiConsumes, ApiBody } from '@nestjs/swagger';
+import {
+  ApiOperation,
+  ApiQuery,
+  ApiResponse,
+  ApiTags,
+  ApiConsumes,
+  ApiBody,
+} from '@nestjs/swagger';
 import { UserListService } from './user-list.service';
 import { UpdateUserListDto } from './dto/update-user-list.dto';
-import { QueryUserListDto, UserRole, UserStatus } from './dto/query-user-list.dto';
+import {
+  QueryUserListDto,
+  UserRole,
+  UserStatus,
+} from './dto/query-user-list.dto';
+import { GetUser } from 'src/modules/auth/decorators/get-user.decorator';
 
 @ApiTags('User List')
 @Controller('admin/user-list')
 export class UserListController {
   constructor(private readonly userListService: UserListService) {}
 
-  @ApiOperation({ summary: 'Get all users with search, filter, and pagination' }) 
+  @ApiOperation({
+    summary: 'Get all users with search, filter, and pagination',
+  })
   @Get()
-  async findAll(
-    @Query() query: QueryUserListDto
-  ) {
+  async findAll(@Query() query: QueryUserListDto) {
     return this.userListService.findAll(query);
   }
 
@@ -57,5 +69,12 @@ export class UserListController {
   @Delete(':id')
   async remove(@Param('id') id: string) {
     return this.userListService.remove(id);
+  }
+
+  @ApiOperation({ summary: 'My Profile (Admin)' })
+  @Get('profile/me')
+  
+  async getMyProfile() {
+    return this.userListService.getMyProfile();
   }
 }
