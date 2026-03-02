@@ -27,6 +27,8 @@ import appConfig from '../../config/app.config';
 import { AuthGuard } from '@nestjs/passport';
 import { AppleAuthGuard } from './guards/apple-auth.guard';
 import { CreateCoachProfileDto } from './dto/create-coach-profile.dto';
+import { GoogleMobileDto } from './dto/google-mobile.dto';
+import { AppleMobileDto } from './dto/apple-mobile.dto';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -140,7 +142,10 @@ export class AuthController {
         throw new HttpException('Email not provided', HttpStatus.BAD_REQUEST);
       }
       if (!data.password) {
-        throw new HttpException('Password not provided', HttpStatus.BAD_REQUEST);
+        throw new HttpException(
+          'Password not provided',
+          HttpStatus.BAD_REQUEST,
+        );
       }
 
       const response = await this.authService.requestRegistration({
@@ -297,56 +302,6 @@ export class AuthController {
         HttpStatus.BAD_REQUEST,
       );
     }
-  }
-
-  // google login
-  @ApiOperation({ summary: 'Google login' })
-  @Get('google')
-  @UseGuards(AuthGuard('google'))
-  async googleLogin(): Promise<any> {
-    return HttpStatus.OK;
-  }
-
-  @Get('google/redirect')
-  @UseGuards(AuthGuard('google'))
-  async googleAuthRedirect(@Req() req, @Res() res: Response) {
-    const { user, loginResponse } = req.user;
-
-    // Now, return the JWT tokens and the user info
-    return res.json({
-      message: 'Logged in successfully via Google',
-      authorization: loginResponse.authorization,
-      user: {
-        email: user.email,
-        first_name: user.first_name,
-        last_name: user.last_name,
-        avatar: user.avatar,
-      },
-    });
-  }
-
-  // apple login
-  @Get('apple')
-  @UseGuards(AppleAuthGuard)
-  async appleAuth(@Req() req) {
-    return HttpStatus.OK;
-  }
-
-  @Get('apple/redirect')
-  @UseGuards(AppleAuthGuard)
-  async appleAuthRedirect(@Req() req, @Res() res: Response) {
-    const { user, loginResponse } = req.user;
-
-    return res.json({
-      message: 'Logged in successfully via Apple',
-      authorization: loginResponse.authorization,
-      user: {
-        email: user.email,
-        first_name: user.first_name,
-        last_name: user.last_name,
-        avatar: user.avatar,
-      },
-    });
   }
 
   // update user
@@ -694,4 +649,21 @@ export class AuthController {
     }
   }
   // --------- end 2FA ---------
+
+  // ======================================== mobile only google login (Flutter) ==============================================
+  @ApiOperation({ summary: 'Google login (mobile - Flutter idToken)' })
+  @Post('google/mobile')
+  @UseGuards(AuthGuard('google-mobile'))
+  async googleMobile(@Req() req: Request, @Body() _body: GoogleMobileDto) {
+    // passport-custom strategy returns the final payload as req.user
+    return req.user;
+  }
+
+  @ApiOperation({ summary: 'Apple login (mobile - Flutter identityToken)' })
+  @Post('apple/mobile')
+  @UseGuards(AuthGuard('apple-mobile'))
+  async appleMobile(@Req() req: Request, @Body() _body: AppleMobileDto) {
+    // passport-custom strategy returns the final payload as req.user
+    return req.user;
+  }
 }

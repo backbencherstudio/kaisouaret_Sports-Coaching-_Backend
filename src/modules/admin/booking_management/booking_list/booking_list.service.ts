@@ -5,7 +5,7 @@ import { CreateBookingListDto } from './dto/create-booking_list.dto';
 import { UpdateBookingListDto } from './dto/update-booking_list.dto';
 import { QueryBookingListDto, BookingStatus } from './dto/query-booking-list.dto';
 import { SendBulkNotificationDto, RecipientType } from './dto/send-bulk-notification.dto';
-import { SazedStorage } from '../../../../common/lib/disk/SazedStorage';
+import { SazedStorage } from '../../../../common/lib/Disk/SazedStorage';
 import { StringHelper } from '../../../../common/helper/string.helper';
 import appConfig from '../../../../config/app.config';
 

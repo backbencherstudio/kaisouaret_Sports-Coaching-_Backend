@@ -8,8 +8,8 @@ import { AuthController } from './auth.controller';
 import appConfig from '../../config/app.config';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { MailModule } from '../../mail/mail.module';
-import { GoogleStrategy } from './strategies/google.strategy';
-import { AppleLoginStrategy } from './strategies/apple.strategy';
+import { GoogleMobileStrategy } from './strategies/google-mobile.strategy';
+import { AppleMobileStrategy } from './strategies/apple-mobile.strategy';
 import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
@@ -26,7 +26,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     NotificationsModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, LocalStrategy, JwtStrategy, GoogleStrategy, AppleLoginStrategy],
+  providers: [AuthService, LocalStrategy, JwtStrategy, GoogleMobileStrategy, AppleMobileStrategy],
   exports: [AuthService],
 })
 export class AuthModule {}
