@@ -5,6 +5,7 @@ import {
   CallHandler,
   HttpStatus,
   Logger,
+  StreamableFile,
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
@@ -40,6 +41,11 @@ export class HttpResponseInterceptor<T>
 
     return next.handle().pipe(
       map((data) => {
+        // Skip wrapping for StreamableFile (PDF downloads, etc.)
+        if (data instanceof StreamableFile) {
+          return data as any;
+        }
+
         // Determine appropriate status code
         const statusCode = this.determineStatusCode(
           method,

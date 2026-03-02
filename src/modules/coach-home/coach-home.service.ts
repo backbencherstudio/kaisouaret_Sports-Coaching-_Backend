@@ -308,10 +308,10 @@ export class CoachHomeService {
 
     // total counts
     const totalBookings = await this.prisma.booking.count({
-      where: { coach_id: coachId },
+      where: { coach_id: coachId, deleted_at: null },
     });
     const completedBookings = await this.prisma.booking.count({
-      where: { coach_id: coachId, status: 'COMPLETED' },
+      where: { coach_id: coachId, status: 'COMPLETED', deleted_at: null },
     });
     const completionRate =
       totalBookings > 0
@@ -324,6 +324,7 @@ export class CoachHomeService {
         coach_id: coachId,
         status: 'COMPLETED',
         appointment_date: { gte: prev30Start, lte: now },
+        deleted_at: null,
       },
       select: {
         session_price: true,
@@ -427,6 +428,7 @@ export class CoachHomeService {
         coach_id: coachId,
         status: { in: ['CONFIRMED', 'COMPLETED'] },
         updated_at: { gte: prev30Start, lte: now },
+        deleted_at: null,
       },
       select: { created_at: true, updated_at: true },
     });

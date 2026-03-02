@@ -1,6 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { QueryUserListDto, UserRole, UserStatus } from './dto/query-user-list.dto';
+import {
+  QueryUserListDto,
+  UserRole,
+  UserStatus,
+} from './dto/query-user-list.dto';
 import { UpdateUserListDto } from './dto/update-user-list.dto';
 import { SazedStorage } from '../../../../common/lib/disk/SazedStorage';
 import { StringHelper } from '../../../../common/helper/string.helper';
@@ -12,16 +16,8 @@ export class UserListService {
 
   async findAll(queryDto: QueryUserListDto) {
     try {
-      const {
-        search,
-        role,
-        status,
-        page = 1,
-        limit = 10,
-      } = queryDto;
-      const andConditions: any[] = [
-        { deleted_at: null },
-      ];
+      const { search, role, status, page = 1, limit = 10 } = queryDto;
+      const andConditions: any[] = [{ deleted_at: null }];
       if (search) {
         andConditions.push({
           OR: [
@@ -42,18 +38,14 @@ export class UserListService {
           andConditions.push({ status: 1 });
         } else if (status === UserStatus.BLOCKED) {
           andConditions.push({
-            OR: [
-              { status: 0 },
-              { status: null },
-            ],
+            OR: [{ status: 0 }, { status: null }],
           });
         }
       }
-      const where_condition = andConditions.length > 1
-        ? { AND: andConditions }
-        : andConditions[0];
+      const where_condition =
+        andConditions.length > 1 ? { AND: andConditions } : andConditions[0];
       const skip = (page - 1) * limit;
-      const take = Math.min(limit, 100); 
+      const take = Math.min(limit, 100);
       const [users, total] = await Promise.all([
         this.prisma.user.findMany({
           where: where_condition,
@@ -164,7 +156,10 @@ export class UserListService {
           },
         });
       } catch (badgeError: any) {
-        console.warn('Could not fetch user badges:', badgeError?.message || 'Unknown error');
+        console.warn(
+          'Could not fetch user badges:',
+          badgeError?.message || 'Unknown error',
+        );
         userBadges = [];
       }
 
@@ -209,9 +204,7 @@ export class UserListService {
         )
       : 0;
 
-    const languages = user.location
-      ? [user.location]
-      : []; // You may need to add a languages field to the schema
+    const languages = user.location ? [user.location] : []; // You may need to add a languages field to the schema
 
     return {
       success: true,
@@ -272,7 +265,10 @@ export class UserListService {
       .join(' - ');
 
     const goals = user.goals
-      ? user.goals.split(',').map((g: string) => g.trim()).filter(Boolean)
+      ? user.goals
+          .split(',')
+          .map((g: string) => g.trim())
+          .filter(Boolean)
       : [];
 
     return {
@@ -304,7 +300,11 @@ export class UserListService {
     };
   }
 
-  async updatedUser(id: string, updateUserListDto: UpdateUserListDto, image?: Express.Multer.File) {
+  async updatedUser(
+    id: string,
+    updateUserListDto: UpdateUserListDto,
+    image?: Express.Multer.File,
+  ) {
     try {
       const user = await this.prisma.user.findFirst({
         where: {
@@ -335,7 +335,8 @@ export class UserListService {
       }
 
       if (updateUserListDto.status !== undefined) {
-        updateData.status = updateUserListDto.status === UserStatus.ACTIVE ? 1 : 0;
+        updateData.status =
+          updateUserListDto.status === UserStatus.ACTIVE ? 1 : 0;
       }
 
       if (updateUserListDto.bio !== undefined) {
@@ -367,10 +368,7 @@ export class UserListService {
 
           const fileName = `${StringHelper.randomString()}${image.originalname}`;
           const avatarKey = `${appConfig().storageUrl.avatar}/${fileName}`;
-          await SazedStorage.put(
-            avatarKey,
-            image.buffer,
-          );
+          await SazedStorage.put(avatarKey, image.buffer);
 
           updateData.avatar = fileName;
         } catch (imageError: any) {
@@ -419,7 +417,9 @@ export class UserListService {
 
       if (updatedUser.avatar) {
         const avatarKey = `${appConfig().storageUrl.avatar}/${updatedUser.avatar}`;
-        const url = SazedStorage.url(avatarKey.startsWith('/') ? avatarKey.substring(1) : avatarKey);
+        const url = SazedStorage.url(
+          avatarKey.startsWith('/') ? avatarKey.substring(1) : avatarKey,
+        );
         responseData.avatar_url = url;
       }
 
@@ -455,7 +455,10 @@ export class UserListService {
           const avatarKey = `${appConfig().storageUrl.avatar}/${user.avatar}`;
           await SazedStorage.delete(avatarKey);
         } catch (storageError: any) {
-          console.warn(`Failed to delete avatar file for user ${id}:`, storageError?.message || 'Unknown error');
+          console.warn(
+            `Failed to delete avatar file for user ${id}:`,
+            storageError?.message || 'Unknown error',
+          );
         }
       }
       await this.prisma.user.delete({
@@ -470,7 +473,8 @@ export class UserListService {
       if (error.code === 'P2003') {
         return {
           success: false,
-          message: 'Cannot delete user: user has related records that prevent deletion',
+          message:
+            'Cannot delete user: user has related records that prevent deletion',
         };
       }
 
@@ -480,4 +484,6 @@ export class UserListService {
       };
     }
   }
+
+  async getMyProfile() {}
 }

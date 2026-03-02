@@ -14,6 +14,7 @@ import { ContentModule } from './content-management/content/content.module';
 import { MarketplaceManagementModule } from './marketplace-management/marketplace-management.module';
 import { MapModule } from '../map/map.module';
 import { BadgeManagementModule } from './badge-management/badge-management.module';
+import { AnalyticsReportsModule } from './analytics-reports/analytics-reports.module';
 
 @Module({
   imports: [
@@ -31,7 +32,8 @@ import { BadgeManagementModule } from './badge-management/badge-management.modul
     ContentModule,
     MarketplaceManagementModule,
     MapModule,
-    BadgeManagementModule
+    BadgeManagementModule,
+    AnalyticsReportsModule
   ],
   controllers: [SubscriptionPlansController],
 })
