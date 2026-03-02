@@ -6,7 +6,7 @@ import {
   UserStatus,
 } from './dto/query-user-list.dto';
 import { UpdateUserListDto } from './dto/update-user-list.dto';
-import { SazedStorage } from '../../../../common/lib/disk/SazedStorage';
+import { SazedStorage } from '../../../../common/lib/Disk/SazedStorage';
 import { StringHelper } from '../../../../common/helper/string.helper';
 import appConfig from '../../../../config/app.config';
 

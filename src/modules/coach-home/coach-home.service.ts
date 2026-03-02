@@ -21,7 +21,7 @@ export class CoachHomeService {
     if (!coachId) return { error: 'Coach ID is required' };
 
     const completed = await this.prisma.booking.findMany({
-      where: { coach_id: coachId, status: 'COMPLETED' },
+      where: { coach_id: coachId, status: 'COMPLETED', deleted_at: null },
       select: { session_price: true, total_amount: true },
     });
     let totalRevenue = 0;
@@ -59,7 +59,7 @@ export class CoachHomeService {
 
     // fetch completed bookings for this coach (we'll reuse the set for multiple metrics)
     const completed = await this.prisma.booking.findMany({
-      where: { coach_id: coachId, status: 'COMPLETED' },
+      where: { coach_id: coachId, status: 'COMPLETED', deleted_at: null },
       select: {
         id: true,
         user_id: true,
@@ -220,6 +220,7 @@ export class CoachHomeService {
       where: {
         coach_id: coachId,
         appointment_date: { gte: start, lte: end },
+        deleted_at: null,
       },
       select: { appointment_date: true },
       orderBy: { appointment_date: 'asc' },
@@ -248,7 +249,7 @@ export class CoachHomeService {
     if (!coachId) return { error: 'Coach ID is required' };
 
     const completed = await this.prisma.booking.findMany({
-      where: { coach_id: coachId, status: 'COMPLETED' },
+      where: { coach_id: coachId, status: 'COMPLETED', deleted_at: null },
       select: { user_id: true, appointment_date: true },
     });
 
