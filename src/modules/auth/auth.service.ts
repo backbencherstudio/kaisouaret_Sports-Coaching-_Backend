@@ -384,9 +384,18 @@ export class AuthService {
       await this.redis.del(`registration_pending:${email}`);
       await this.redis.del(`registration_otp:${email}`);
 
+      // Auto-login after successful registration verification
+      const loginResponse = await this.login({
+        email: registrationData.email,
+        userId: user.data.id,
+      });
+
       return {
         success: true,
-        message: 'Registration completed successfully. You can now login.',
+        message:
+          'Registration completed successfully. Please setup your profile.',
+        authorization: loginResponse.authorization,
+        type: loginResponse.type,
       };
     } catch (error) {
       console.error('verifyAndRegister error:', error);
