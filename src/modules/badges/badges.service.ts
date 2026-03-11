@@ -29,11 +29,18 @@ type BadgeStats = {
 export class BadgesService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private buildBadgeIconUrl(icon: string) {
+    const encodedIcon = encodeURIComponent(icon);
+    return SazedStorage.url(
+      appConfig().storageUrl.photo + '/' + encodedIcon,
+    );
+  }
+
   private serializeBadge<T extends { icon?: string | null }>(badge: T) {
     return {
       ...badge,
       icon_url: badge.icon
-        ? SazedStorage.url(appConfig().storageUrl.photo + '/' + badge.icon)
+        ? this.buildBadgeIconUrl(badge.icon)
         : null,
     };
   }
