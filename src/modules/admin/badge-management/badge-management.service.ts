@@ -4,6 +4,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { Express } from 'express';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateBadgeManagementDto } from './dto/create-badge-management.dto';
 import { UpdateBadgeManagementDto } from './dto/update-badge-management.dto';
@@ -11,9 +12,107 @@ import { SazedStorage } from '../../../common/lib/Disk/SazedStorage';
 import appConfig from '../../../config/app.config';
 import { StringHelper } from '../../../common/helper/string.helper';
 
+type BadgeCriteria = Prisma.InputJsonObject;
+
 @Injectable()
 export class BadgeManagementService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private readonly supportedCriteriaFields = new Set([
+    'completed_bookings',
+    'completed_booking_days',
+    'goals',
+    'goals_count',
+    'user_goals',
+    'earned_badge_points',
+    'badge_points',
+    'earned_badges',
+    'earned_badges_count',
+  ]);
+
+  private serializeBadge<T extends { icon?: string | null }>(badge: T) {
+    return {
+      ...badge,
+      icon_url: badge.icon
+        ? SazedStorage.url(appConfig().storageUrl.photo + '/' + badge.icon)
+        : null,
+    };
+  }
+
+  private validateCriteriaNode(criteria: unknown, path = 'criteria'): void {
+    if (!criteria || typeof criteria !== 'object' || Array.isArray(criteria)) {
+      throw new BadRequestException(`${path} must be a valid JSON object`);
+    }
+
+    const rule = criteria as BadgeCriteria;
+
+    if (Array.isArray(rule.conditions)) {
+      const operator =
+        typeof rule.operator === 'string' ? rule.operator : undefined;
+
+      if (!operator || !['all', 'any'].includes(operator)) {
+        throw new BadRequestException(
+          `${path}.operator must be either 'all' or 'any' when using conditions`,
+        );
+      }
+
+      if (rule.conditions.length === 0) {
+        throw new BadRequestException(
+          `${path}.conditions must contain at least one rule`,
+        );
+      }
+
+      rule.conditions.forEach((condition, index) => {
+        this.validateCriteriaNode(condition, `${path}.conditions[${index}]`);
+      });
+      return;
+    }
+
+    if (!rule.type || typeof rule.type !== 'string') {
+      throw new BadRequestException(`${path}.type is required`);
+    }
+
+    if (!rule.field || typeof rule.field !== 'string') {
+      throw new BadRequestException(`${path}.field is required`);
+    }
+
+    if (!this.supportedCriteriaFields.has(rule.field)) {
+      throw new BadRequestException(
+        `${path}.field '${rule.field}' is not supported`,
+      );
+    }
+
+    if (rule.days !== undefined) {
+      if (
+        typeof rule.days !== 'number' ||
+        !Number.isFinite(rule.days) ||
+        rule.days <= 0
+      ) {
+        throw new BadRequestException(`${path}.days must be a positive number`);
+      }
+    }
+
+    if (rule.type === 'exists') {
+      return;
+    }
+
+    const value = Number(rule.value);
+    if (!Number.isFinite(value) || value <= 0) {
+      throw new BadRequestException(
+        `${path}.value must be a positive number for '${rule.type}' criteria`,
+      );
+    }
+  }
+
+  private normalizeCriteria(
+    criteria: unknown,
+  ): Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput | undefined {
+    if (criteria === undefined) return undefined;
+    if (criteria === null) return Prisma.JsonNull;
+
+    this.validateCriteriaNode(criteria);
+    return criteria as Prisma.InputJsonValue;
+  }
 
   /**
    * Create a new badge
@@ -34,6 +133,10 @@ export class BadgeManagementService {
           `Badge with key '${createBadgeManagementDto.key}' already exists`,
         );
       }
+
+      const normalizedCriteria = this.normalizeCriteria(
+        createBadgeManagementDto.criteria,
+      );
 
       let iconFileName: string | undefined = createBadgeManagementDto.icon;
 
@@ -79,17 +182,11 @@ export class BadgeManagementService {
           description: createBadgeManagementDto.description,
           points: createBadgeManagementDto.points ?? 0,
           icon: iconFileName,
-          criteria: createBadgeManagementDto.criteria || null,
+          criteria: normalizedCriteria ?? null,
         },
       });
 
-      // Serialize icon URL for response
-      const badgeData = {
-        ...badge,
-        icon_url: badge.icon
-          ? SazedStorage.url(appConfig().storageUrl.photo + '/' + badge.icon)
-          : null,
-      };
+      const badgeData = this.serializeBadge(badge);
 
       return {
         success: true,
@@ -126,10 +223,7 @@ export class BadgeManagementService {
         title: badge.title,
         description: badge.description,
         points: badge.points,
-        icon: badge.icon,
-        icon_url: badge.icon
-          ? SazedStorage.url(appConfig().storageUrl.photo + '/' + badge.icon)
-          : null,
+        ...this.serializeBadge({ icon: badge.icon }),
         criteria: badge.criteria,
         users_earned: badge._count.user_badges,
         created_at: badge.created_at,
@@ -190,10 +284,7 @@ export class BadgeManagementService {
           title: badge.title,
           description: badge.description,
           points: badge.points,
-          icon: badge.icon,
-          icon_url: badge.icon
-            ? SazedStorage.url(appConfig().storageUrl.photo + '/' + badge.icon)
-            : null,
+          ...this.serializeBadge({ icon: badge.icon }),
           criteria: badge.criteria,
           users_earned: badge._count.user_badges,
           created_at: badge.created_at,
@@ -259,7 +350,9 @@ export class BadgeManagementService {
       if (updateBadgeManagementDto.points !== undefined)
         updateData.points = updateBadgeManagementDto.points;
       if (updateBadgeManagementDto.criteria !== undefined)
-        updateData.criteria = updateBadgeManagementDto.criteria;
+        updateData.criteria = this.normalizeCriteria(
+          updateBadgeManagementDto.criteria,
+        );
 
       // Handle icon upload if new icon provided
       if (icon) {
@@ -317,13 +410,7 @@ export class BadgeManagementService {
         data: updateData,
       });
 
-      // Serialize icon URL for response
-      const badgeData = {
-        ...badge,
-        icon_url: badge.icon
-          ? SazedStorage.url(appConfig().storageUrl.photo + '/' + badge.icon)
-          : null,
-      };
+      const badgeData = this.serializeBadge(badge);
 
       return {
         success: true,

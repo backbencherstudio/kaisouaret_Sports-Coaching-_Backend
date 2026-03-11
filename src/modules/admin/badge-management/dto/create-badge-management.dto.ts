@@ -35,8 +35,8 @@ export class CreateBadgeManagementDto {
 
   @ApiProperty({ 
     required: false, 
-    description: 'Criteria for earning the badge (JSON string when using multipart/form-data)', 
-    example: '{ "type": "count", "field": "completed_bookings", "value": 1 }'
+    description: "Criteria for earning the badge. Supported leaf fields: completed_bookings, completed_booking_days, goals, goals_count, user_goals, earned_badge_points, badge_points, earned_badges, earned_badges_count. Use leaf rules like { type, field, value?, days? } or grouped rules like { operator: 'all'|'any', conditions: [...] }.", 
+    example: '{ "operator": "all", "conditions": [{ "type": "count", "field": "completed_bookings", "value": 10 }, { "type": "exists", "field": "goals" }] }'
   })
   @IsOptional()
   @Transform(({ value }) => {
