@@ -30,11 +30,35 @@ export class BadgeManagementService {
     'earned_badges_count',
   ]);
 
+  private buildBadgeIconUrl(icon: string) {
+    const encodedIcon = encodeURIComponent(icon);
+    return SazedStorage.url(
+      appConfig().storageUrl.photo + '/' + encodedIcon,
+    );
+  }
+
+  private sanitizeBadgeFileName(fileName: string) {
+    const trimmedName = (fileName || '').trim();
+    const parts = trimmedName.split('.');
+    const extension = parts.length > 1 ? parts.pop() || '' : '';
+    const base = parts.join('.') || trimmedName;
+
+    const safeBase = base
+      .replace(/\s+/g, '_')
+      .replace(/[^a-zA-Z0-9._-]/g, '');
+
+    const safeExtension = extension
+      .replace(/\s+/g, '')
+      .replace(/[^a-zA-Z0-9]/g, '');
+
+    return safeExtension ? `${safeBase}.${safeExtension}` : safeBase;
+  }
+
   private serializeBadge<T extends { icon?: string | null }>(badge: T) {
     return {
       ...badge,
       icon_url: badge.icon
-        ? SazedStorage.url(appConfig().storageUrl.photo + '/' + badge.icon)
+        ? this.buildBadgeIconUrl(badge.icon)
         : null,
     };
   }
@@ -157,7 +181,8 @@ export class BadgeManagementService {
             );
           }
 
-          const fileName = `badge_${StringHelper.randomString()}_${icon.originalname}`;
+          const safeOriginalName = this.sanitizeBadgeFileName(icon.originalname);
+          const fileName = `badge_${StringHelper.randomString()}_${safeOriginalName}`;
           const uploadPath = appConfig().storageUrl.photo + '/' + fileName;
 
           console.log(`Uploading badge icon: ${fileName} (${icon.size} bytes)`);
@@ -385,7 +410,8 @@ export class BadgeManagementService {
           }
 
           // Upload new icon
-          const fileName = `badge_${StringHelper.randomString()}_${icon.originalname}`;
+          const safeOriginalName = this.sanitizeBadgeFileName(icon.originalname);
+          const fileName = `badge_${StringHelper.randomString()}_${safeOriginalName}`;
           const uploadPath = appConfig().storageUrl.photo + '/' + fileName;
 
           console.log(`Uploading badge icon: ${fileName} (${icon.size} bytes)`);
