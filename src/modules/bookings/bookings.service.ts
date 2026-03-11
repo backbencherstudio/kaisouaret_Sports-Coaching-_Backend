@@ -1875,24 +1875,129 @@ export class BookingsService {
   async getCancelledBookings(userId: string) {
     if (!userId) throw new BadRequestException('User ID is required');
 
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    // Coach view: return cancelled bookings where they are the coach
+    if (user.type === 'coach') {
+      const coachProfile = await this.prisma.coachProfile.findUnique({
+        where: { user_id: userId },
+      });
+      if (!coachProfile) {
+        console.error(
+          `getCancelledBookings: coach profile not found for userId=${userId}`,
+          { userId },
+        );
+        throw new NotFoundException('Coach profile not found');
+      }
+
+      const cancelledBookings = await this.prisma.booking.findMany({
+        where: {
+          coach_id: userId,
+          coach_profile_id: coachProfile.id,
+          status: 'CANCELLED',
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              status: true,
+              email: true,
+              avatar: true,
+              sports: true,
+            },
+          },
+          sessionPackage: {
+            select: {
+              id: true,
+              title: true,
+              description: true,
+              number_of_sessions: true,
+              days_validity: true,
+              total_price: true,
+              currency: true,
+            },
+          },
+        },
+        orderBy: { appointment_date: 'desc' },
+      });
+
+      return {
+        items: cancelledBookings || [],
+        total: cancelledBookings?.length || 0,
+      };
+    }
+
+    // Athlete view: return cancelled bookings for this athlete, include coach info
     const bookings = await this.prisma.booking.findMany({
-      where: {
-        user_id: userId,
-        status: 'CANCELLED',
-      },
+      where: { user_id: userId, status: 'CANCELLED' },
       include: {
-        user: {
+        coach_profile: {
           select: {
             id: true,
-            name: true,
             status: true,
-            email: true,
-            avatar: true,
+            primary_specialty: true,
+            specialties: true,
+            experience_level: true,
+            certifications: true,
+            hourly_rate: true,
+            hourly_currency: true,
+            session_duration_minutes: true,
+            session_price: true,
+          },
+        },
+        sessionPackage: {
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            number_of_sessions: true,
+            days_validity: true,
+            total_price: true,
+            currency: true,
           },
         },
       },
+      orderBy: { appointment_date: 'desc' },
     });
-    return { items: bookings, total: bookings.length };
+
+    // batch fetch coach user data
+    const coachIds = Array.from(new Set(bookings.map((b) => b.coach_id)));
+    const coachUsers =
+      coachIds.length > 0
+        ? await this.prisma.user.findMany({
+            where: { id: { in: coachIds } },
+            select: {
+              id: true,
+              name: true,
+              status: true,
+              email: true,
+              phone_number: true,
+              avatar: true,
+              bio: true,
+              objectives: true,
+              goals: true,
+              sports: true,
+              age: true,
+              location: true,
+              type: true,
+            },
+          })
+        : [];
+
+    const coachMap: Record<string, any> = {};
+    for (const u of coachUsers) coachMap[u.id] = u;
+
+    const results = bookings.map((b) => ({
+      ...b,
+      coach: {
+        user: coachMap[b.coach_id] || null,
+        profile: b.coach_profile,
+      },
+    }));
+
+    return { items: results, total: results.length };
   }
 
   async getUpcomingBookings(userId: string) {
@@ -2393,6 +2498,27 @@ export class BookingsService {
       isPremium = !!activeSubscription;
     }
 
+    const currentBookingTotalSessions =
+      booking.number_of_sessions && booking.number_of_sessions > 0
+        ? booking.number_of_sessions
+        : 1;
+    const currentBookingCompletedSessions = Math.min(
+      booking.total_completed_session || 0,
+      currentBookingTotalSessions,
+    );
+    const currentBookingPendingSessions = Math.max(
+      currentBookingTotalSessions - currentBookingCompletedSessions,
+      0,
+    );
+
+    const lifetimeCompletedSessionsWithCoach = await this.prisma.booking.count({
+      where: {
+        coach_id: booking.coach_id,
+        user_id: booking.user_id,
+        status: 'COMPLETED',
+      },
+    });
+
     // Build response based on user type
     let response: any = {
       id: booking.id,
@@ -2414,9 +2540,16 @@ export class BookingsService {
           : null,
         currency: booking.currency,
         location: booking.location,
+        total_sessions: currentBookingTotalSessions,
+        completed_sessions: currentBookingCompletedSessions,
+        pending_sessions: currentBookingPendingSessions,
       },
       sessionProgress,
       sessionPackage: booking.sessionPackage || null,
+      sessionCount: {
+        completed_bookings_with_this_coach_lifetime:
+          lifetimeCompletedSessionsWithCoach,
+      },
     };
 
     // Add user-specific data
@@ -2562,19 +2695,6 @@ export class BookingsService {
 
       response.smartInsights = insights;
 
-      // Session count for this athlete with this coach
-      const totalSessionsCount = await this.prisma.booking.count({
-        where: {
-          coach_id: userId,
-          user_id: booking.user_id,
-          status: 'COMPLETED',
-        },
-      });
-
-      response.sessionCount = {
-        completed: totalSessionsCount,
-        total: booking.number_of_sessions || null,
-      };
     } else {
       // Athlete view: show coach details
       response.coachDetail = {
