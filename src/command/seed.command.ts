@@ -37,19 +37,91 @@ export class SeedCommand extends CommandRunner {
 
   async badgeSeed() {
     const badges = [
-      { key: 'first_session', title: 'First Session', description: 'Completed your first training session', points: 10 },
-      { key: 'goal_setter', title: 'Goal Setter', description: 'Set your first fitness goal', points: 5 },
-      { key: 'consistency_master', title: 'Consistency Master', description: 'Trained for 7 days straight', points: 50 },
-      { key: 'marathon_trainer', title: 'Marathon Trainer', description: 'Complete 50 training sessions', points: 100 },
-      { key: 'perfect_week', title: 'Perfect Week', description: 'Complete all scheduled sessions in a week', points: 30 },
-      { key: 'legendary_athlete', title: 'Legendary Athlete', description: 'Reach 1000 total points', points: 200 },
+      {
+        key: 'first_session',
+        title: 'First Session',
+        description: 'Completed your first training session',
+        points: 10,
+        criteria: {
+          type: 'count',
+          field: 'completed_bookings',
+          value: 1,
+        },
+      },
+      {
+        key: 'goal_setter',
+        title: 'Goal Setter',
+        description: 'Set your first fitness goal',
+        points: 5,
+        criteria: {
+          type: 'exists',
+          field: 'goals',
+        },
+      },
+      {
+        key: 'consistency_master',
+        title: 'Consistency Master',
+        description: 'Trained for 7 days straight',
+        points: 50,
+        criteria: {
+          type: 'count',
+          field: 'completed_booking_days',
+          days: 7,
+          value: 7,
+        },
+      },
+      {
+        key: 'marathon_trainer',
+        title: 'Marathon Trainer',
+        description: 'Complete 50 training sessions',
+        points: 100,
+        criteria: {
+          type: 'count',
+          field: 'completed_bookings',
+          value: 50,
+        },
+      },
+      {
+        key: 'perfect_week',
+        title: 'Perfect Week',
+        description: 'Complete all scheduled sessions in a week',
+        points: 30,
+        criteria: {
+          type: 'count',
+          field: 'completed_bookings',
+          days: 7,
+          value: 7,
+        },
+      },
+      {
+        key: 'legendary_athlete',
+        title: 'Legendary Athlete',
+        description: 'Reach 1000 total points',
+        points: 200,
+        criteria: {
+          type: 'points',
+          field: 'earned_badge_points',
+          value: 1000,
+        },
+      },
     ];
 
     for (const b of badges) {
       await this.prisma.badge.upsert({
         where: { key: b.key },
-        update: { title: b.title, description: b.description, points: b.points },
-        create: { key: b.key, title: b.title, description: b.description, points: b.points },
+        update: {
+          title: b.title,
+          description: b.description,
+          points: b.points,
+          criteria: b.criteria,
+        },
+        create: {
+          key: b.key,
+          title: b.title,
+          description: b.description,
+          points: b.points,
+          criteria: b.criteria,
+        },
       });
     }
   }

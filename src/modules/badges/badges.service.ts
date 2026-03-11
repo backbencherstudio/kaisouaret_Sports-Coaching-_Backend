@@ -4,10 +4,284 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SazedStorage } from '../../common/lib/Disk/SazedStorage';
+import appConfig from '../../config/app.config';
+
+type BadgeCriteria = Record<string, any>;
+
+type BadgeProgress = {
+  eligible: boolean;
+  current: number;
+  target: number;
+  percent: number;
+};
+
+type BadgeStats = {
+  completedBookings: number;
+  completedBookingsWithinDays: Record<number, number>;
+  completedBookingDistinctDays: Record<number, number>;
+  goalsCount: number;
+  earnedBadgePoints: number;
+  earnedBadgesCount: number;
+};
 
 @Injectable()
 export class BadgesService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private serializeBadge<T extends { icon?: string | null }>(badge: T) {
+    return {
+      ...badge,
+      icon_url: badge.icon
+        ? SazedStorage.url(appConfig().storageUrl.photo + '/' + badge.icon)
+        : null,
+    };
+  }
+
+  private countLegacyGoals(goals: string | null | undefined) {
+    if (!goals || !goals.trim()) return 0;
+
+    try {
+      const parsed = JSON.parse(goals);
+      if (Array.isArray(parsed)) return parsed.filter(Boolean).length;
+      if (typeof parsed === 'string') return parsed.trim() ? 1 : 0;
+    } catch {
+      // Fallback to plain text or comma-separated values.
+    }
+
+    const items = goals
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+    return items.length > 0 ? items.length : 1;
+  }
+
+  private extractWindowDays(criteria: unknown): number[] {
+    const windows = new Set<number>();
+
+    const walk = (node: unknown) => {
+      if (!node || typeof node !== 'object') return;
+
+      if (Array.isArray(node)) {
+        node.forEach(walk);
+        return;
+      }
+
+      const record = node as BadgeCriteria;
+      if (
+        typeof record.days === 'number' &&
+        Number.isFinite(record.days) &&
+        record.days > 0
+      ) {
+        windows.add(Math.floor(record.days));
+      }
+
+      if (Array.isArray(record.conditions)) {
+        record.conditions.forEach(walk);
+      }
+    };
+
+    walk(criteria);
+    return [...windows];
+  }
+
+  private resolveMetricValue(
+    field: string | undefined,
+    stats: BadgeStats,
+    days?: number,
+  ) {
+    switch (field) {
+      case 'completed_bookings':
+        return days && days > 0
+          ? stats.completedBookingsWithinDays[days] ?? 0
+          : stats.completedBookings;
+      case 'completed_booking_days':
+        return days && days > 0
+          ? stats.completedBookingDistinctDays[days] ?? 0
+          : 0;
+      case 'goals':
+      case 'goals_count':
+      case 'user_goals':
+        return stats.goalsCount;
+      case 'earned_badge_points':
+      case 'badge_points':
+        return stats.earnedBadgePoints;
+      case 'earned_badges':
+      case 'earned_badges_count':
+        return stats.earnedBadgesCount;
+      default:
+        return 0;
+    }
+  }
+
+  private evaluateLeafCriteria(criteria: BadgeCriteria, stats: BadgeStats) {
+    const days =
+      typeof criteria.days === 'number' && criteria.days > 0
+        ? Math.floor(criteria.days)
+        : undefined;
+    const metricValue = this.resolveMetricValue(criteria.field, stats, days);
+
+    if (criteria.type === 'exists') {
+      const current = metricValue > 0 ? 1 : 0;
+      return {
+        eligible: current === 1,
+        current,
+        target: 1,
+        percent: current === 1 ? 100 : 0,
+      };
+    }
+
+    const rawTarget = Number(criteria.value ?? 1);
+    const target = Number.isFinite(rawTarget) && rawTarget > 0 ? rawTarget : 1;
+    const current = Math.min(metricValue, target);
+
+    return {
+      eligible: metricValue >= target,
+      current,
+      target,
+      percent: Math.min(Math.floor((metricValue / target) * 100), 100),
+    };
+  }
+
+  private evaluateCriteria(
+    criteria: unknown,
+    stats: BadgeStats,
+  ): BadgeProgress | null {
+    if (!criteria || typeof criteria !== 'object' || Array.isArray(criteria)) {
+      return null;
+    }
+
+    const normalizedCriteria = criteria as BadgeCriteria;
+
+    if (
+      Array.isArray(normalizedCriteria.conditions) &&
+      normalizedCriteria.conditions.length > 0
+    ) {
+      const results = normalizedCriteria.conditions
+        .map((condition) => this.evaluateCriteria(condition, stats))
+        .filter((result): result is BadgeProgress => result !== null);
+
+      if (results.length === 0) return null;
+
+      if (normalizedCriteria.operator === 'any') {
+        const eligible = results.some((result) => result.eligible);
+        const percent = eligible
+          ? 100
+          : Math.max(...results.map((result) => result.percent), 0);
+
+        return {
+          eligible,
+          current: eligible ? 1 : 0,
+          target: 1,
+          percent,
+        };
+      }
+
+      const completedConditions = results.filter((result) => result.eligible).length;
+
+      return {
+        eligible: completedConditions === results.length,
+        current: completedConditions,
+        target: results.length,
+        percent: Math.floor((completedConditions / results.length) * 100),
+      };
+    }
+
+    if (!normalizedCriteria.type || !normalizedCriteria.field) {
+      return null;
+    }
+
+    return this.evaluateLeafCriteria(normalizedCriteria, stats);
+  }
+
+  private async buildBadgeStats(userId: string, criteria: unknown) {
+    const windows = this.extractWindowDays(criteria);
+    const maxWindow = windows.length > 0 ? Math.max(...windows) : 0;
+
+    const [completedBookings, user, userBadges, recentCompletedBookings] =
+      await Promise.all([
+        this.prisma.booking.count({
+          where: { user_id: userId, status: 'COMPLETED' },
+        }),
+        this.prisma.user.findUnique({
+          where: { id: userId },
+          select: {
+            goals: true,
+            _count: {
+              select: {
+                user_goals: true,
+              },
+            },
+          },
+        }),
+        this.prisma.userBadge.findMany({
+          where: { user_id: userId },
+          include: {
+            badge: {
+              select: {
+                points: true,
+              },
+            },
+          },
+        }),
+        maxWindow > 0
+          ? this.prisma.booking.findMany({
+              where: {
+                user_id: userId,
+                status: 'COMPLETED',
+                appointment_date: {
+                  gte: new Date(
+                    Date.now() - maxWindow * 24 * 60 * 60 * 1000,
+                  ),
+                },
+              },
+              select: {
+                appointment_date: true,
+              },
+            })
+          : Promise.resolve([] as { appointment_date: Date }[]),
+      ]);
+
+    const completedBookingsWithinDays: Record<number, number> = {};
+    const completedBookingDistinctDays: Record<number, number> = {};
+
+    for (const days of windows) {
+      const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+      const bookingsInWindow = recentCompletedBookings.filter(
+        (booking) => new Date(booking.appointment_date) >= cutoff,
+      );
+
+      completedBookingsWithinDays[days] = bookingsInWindow.length;
+      completedBookingDistinctDays[days] = new Set(
+        bookingsInWindow.map((booking) =>
+          new Date(booking.appointment_date).toDateString(),
+        ),
+      ).size;
+    }
+
+    const earnedBadgePoints = userBadges.reduce(
+      (total, userBadge) => total + Number(userBadge.badge?.points ?? 0),
+      0,
+    );
+
+    return {
+      completedBookings,
+      completedBookingsWithinDays,
+      completedBookingDistinctDays,
+      goalsCount: Math.max(
+        user?._count.user_goals ?? 0,
+        this.countLegacyGoals(user?.goals),
+      ),
+      earnedBadgePoints,
+      earnedBadgesCount: userBadges.length,
+    };
+  }
+
+  private async getBadgeProgress(userId: string, criteria: unknown) {
+    const stats = await this.buildBadgeStats(userId, criteria);
+    return this.evaluateCriteria(criteria, stats);
+  }
 
   // Return all badges. If userId provided, include earned info and earned_at.
   async getAllBadges(userId?: string) {
@@ -20,7 +294,7 @@ export class BadgesService {
       return {
         success: true,
         message: 'All badges retrieved successfully',
-        data: badges,
+        data: badges.map((b) => this.serializeBadge(b)),
       };
     }
 
@@ -31,7 +305,7 @@ export class BadgesService {
     for (const ub of userBadges) map[ub.badge_id] = ub;
 
     const badgesWithProgress = badges.map((b) => ({
-      ...b,
+      ...this.serializeBadge(b),
       earned: !!map[b.id],
       earned_at: map[b.id]?.earned_at ?? null,
     }));
@@ -70,7 +344,7 @@ export class BadgesService {
         earned_count: userBadges.length,
         completed_bookings: completedBookings,
         badges: allBadges.map((b) => ({
-          ...b,
+          ...this.serializeBadge(b),
           earned: !!earnedMap[b.id],
           earned_at: earnedMap[b.id]?.earned_at ?? null,
         })),
@@ -93,74 +367,33 @@ export class BadgesService {
     });
     if (already) throw new BadRequestException('Badge already awarded to this user');
 
-    // Basic eligibility rules (approximate):
-    const completedCount = await this.prisma.booking.count({
-      where: { user_id: userId, status: 'COMPLETED' },
-    });
+    const progress = await this.getBadgeProgress(userId, badge.criteria);
 
-    const now = new Date();
-    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const completedLast7DaysRaw = await this.prisma.booking.findMany({
-      where: {
-        user_id: userId,
-        status: 'COMPLETED',
-        appointment_date: { gte: sevenDaysAgo },
-      },
-      select: { appointment_date: true },
-    });
-    const uniqueDays = new Set(
-      completedLast7DaysRaw.map((r) =>
-        new Date(r.appointment_date).toDateString(),
-      ),
-    );
-    const completedLast7Days = uniqueDays.size;
-
-    // evaluate per badge key
-    let eligible = false;
-    switch (badgeKey) {
-      case 'first_session':
-        eligible = completedCount >= 1;
-        break;
-      case 'goal_setter':
-        // user must have goals set in user.goals
-        const user = await this.prisma.user.findUnique({
-          where: { id: userId },
-          select: { goals: true },
-        });
-        eligible = !!(user?.goals && user.goals.length > 0);
-        break;
-      case 'consistency_master':
-        // 7 distinct days with completed sessions
-        eligible = completedLast7Days >= 7;
-        break;
-      case 'marathon_trainer':
-        eligible = completedCount >= 50;
-        break;
-      case 'perfect_week':
-        // approximate: completed at least 7 sessions in last 7 days
-        eligible = completedLast7Days >= 7;
-        break;
-      case 'legendary_athlete':
-        // placeholder: require 1000 points — not tracked, allow admin/manual claim via ?
-        eligible = false;
-        break;
-      default:
-        // Unknown badge: only admin can award (not supported here)
-        throw new BadRequestException('Unknown badge key');
+    if (!progress) {
+      throw new BadRequestException('Badge criteria is not configured properly');
     }
 
-    if (!eligible) throw new BadRequestException('You are not eligible for this badge yet');
+    if (!progress.eligible) {
+      throw new BadRequestException('You are not eligible for this badge yet');
+    }
 
     const userBadge = await this.prisma.userBadge.create({
       data: { user_id: userId, badge_id: badge.id },
     });
+
+    const serializedBadge = this.serializeBadge(badge);
 
     return {
       success: true,
       message: 'Badge claimed successfully',
       data: {
         awarded: true,
-        userBadge,
+        badge: serializedBadge,
+        progress,
+        userBadge: {
+          ...userBadge,
+          badge: serializedBadge,
+        },
       },
     };
   }
@@ -169,26 +402,15 @@ export class BadgesService {
   async getNextBadge(userId: string) {
     if (!userId) throw new BadRequestException('User ID is required');
 
-    // Fetch badges ordered by created_at (assumed progression)
-    const badges = await this.prisma.badge.findMany({ orderBy: { created_at: 'asc' } });
-    const userBadges = await this.prisma.userBadge.findMany({ where: { user_id: userId } , include: { badge: true } });
+    const badges = await this.prisma.badge.findMany({
+      orderBy: { created_at: 'asc' },
+    });
+    const userBadges = await this.prisma.userBadge.findMany({
+      where: { user_id: userId },
+      include: { badge: true },
+    });
     const earnedKeys = new Set(userBadges.map((ub) => ub.badge.key));
 
-    // compute user stats used for progress
-    const completedCount = await this.prisma.booking.count({ where: { user_id: userId, status: 'COMPLETED' } });
-    const now = new Date();
-    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const completedLast7DaysRaw = await this.prisma.booking.findMany({ where: { user_id: userId, status: 'COMPLETED', appointment_date: { gte: sevenDaysAgo } }, select: { appointment_date: true } });
-    const uniqueDays = new Set(completedLast7DaysRaw.map((r) => new Date(r.appointment_date).toDateString()));
-    const completedLast7Days = uniqueDays.size;
-
-    // compute user points from earned badges (if any)
-    let userPoints = 0;
-    for (const ub of userBadges) {
-      if (ub.badge?.points) userPoints += Number(ub.badge.points);
-    }
-
-    // find first unearned badge as next target
     const next = badges.find((b) => !earnedKeys.has(b.key));
     if (!next) {
       return {
@@ -200,70 +422,21 @@ export class BadgesService {
         },
       };
     }
-
-    // determine target and current progress per badge key
-    let target = 1;
-    let current = 0;
-    switch (next.key) {
-      case 'first_session':
-        target = 1;
-        current = Math.min(completedCount, target);
-        break;
-      case 'goal_setter':
-        target = 1;
-        const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { goals: true } });
-        current = user?.goals && user.goals.length > 0 ? 1 : 0;
-        break;
-      case 'consistency_master':
-        target = 7;
-        current = Math.min(completedLast7Days, target);
-        break;
-      case 'marathon_trainer':
-        target = 50;
-        current = Math.min(completedCount, target);
-        break;
-      case 'perfect_week':
-        target = 7;
-        current = Math.min(completedLast7Days, target);
-        break;
-      case 'legendary_athlete':
-        target = 1000;
-        current = Math.min(userPoints, target);
-        break;
-      default:
-        // if badge has criteria in JSON, try to read { type: 'count', value: N }
-        if (next.criteria && typeof next.criteria === 'object') {
-          try {
-            const c: any = next.criteria;
-            if (c.type === 'count' && c.field === 'completed_bookings') {
-              target = c.value ?? 1;
-              current = Math.min(completedCount, target);
-            }
-          } catch (e) {
-            // fallback
-            target = 1;
-            current = 0;
-          }
-        } else {
-          target = 1;
-          current = 0;
-        }
-    }
-
-    const percent = target > 0 ? Math.floor((current / target) * 100) : 0;
+    const progress = await this.getBadgeProgress(userId, next.criteria);
 
     return {
       success: true,
       message: 'Next badge retrieved successfully',
       data: {
         next: {
-          id: next.id,
-          key: next.key,
-          title: next.title,
-          description: next.description,
-          points: next.points,
+          ...this.serializeBadge(next),
         },
-        progress: { current, target, percent },
+        progress: progress ?? {
+          eligible: false,
+          current: 0,
+          target: 0,
+          percent: 0,
+        },
       },
     };
   }
