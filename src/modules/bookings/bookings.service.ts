@@ -1240,6 +1240,8 @@ export class BookingsService {
             hourly_currency: true,
             session_duration_minutes: true,
             session_price: true,
+            avg_rating: true,
+            rating_count: true,
           },
         },
       },
@@ -1347,6 +1349,8 @@ export class BookingsService {
             hourly_currency: true,
             session_duration_minutes: true,
             session_price: true,
+            avg_rating: true,
+            rating_count: true,
           },
         },
       },
@@ -1425,6 +1429,8 @@ export class BookingsService {
         hourly_currency: true,
         session_duration_minutes: true,
         session_price: true,
+        avg_rating: true,
+        rating_count: true,
       },
     });
 
@@ -1945,6 +1951,8 @@ export class BookingsService {
             hourly_currency: true,
             session_duration_minutes: true,
             session_price: true,
+            avg_rating: true,
+            rating_count: true,
           },
         },
         sessionPackage: {
@@ -2084,6 +2092,8 @@ export class BookingsService {
             session_duration_minutes: true,
             session_price: true,
             hourly_currency: true,
+            avg_rating: true,
+            rating_count: true,
           },
         },
       },
@@ -2192,6 +2202,8 @@ export class BookingsService {
             session_duration_minutes: true,
             session_price: true,
             hourly_currency: true,
+            avg_rating: true,
+            rating_count: true,
           },
         },
       },
@@ -2384,14 +2396,14 @@ export class BookingsService {
         session_duration_minutes: true,
         session_price: true,
         is_verified: true,
-        avg_rating: true,
-        rating_count: true,
         available_days: true,
         weekend_days: true,
         blocked_days: true,
         blocked_time_slots: true,
         latitude: true,
         longitude: true,
+        avg_rating: true,
+        rating_count: true,
       },
     });
 
@@ -2694,7 +2706,6 @@ export class BookingsService {
       }
 
       response.smartInsights = insights;
-
     } else {
       // Athlete view: show coach details
       response.coachDetail = {
@@ -3906,6 +3917,8 @@ export class BookingsService {
             session_duration_minutes: true,
             session_price: true,
             is_verified: true,
+            rating_count: true,
+            avg_rating: true,            
           },
         },
       },
@@ -3957,7 +3970,7 @@ export class BookingsService {
         phone_number: true,
         bio: true,
         location: true,
-        
+
         coach_profile: {
           select: {
             id: true,
@@ -3972,6 +3985,7 @@ export class BookingsService {
             is_verified: true,
             rating_count: true,
             avg_rating: true,
+            
           },
         },
       },
@@ -4333,6 +4347,8 @@ export class BookingsService {
             hourly_currency: true,
             session_duration_minutes: true,
             session_price: true,
+            avg_rating: true,
+            rating_count: true,
           },
         },
         sessionPackage: {
