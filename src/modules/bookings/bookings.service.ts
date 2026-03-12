@@ -3957,6 +3957,7 @@ export class BookingsService {
         phone_number: true,
         bio: true,
         location: true,
+        
         coach_profile: {
           select: {
             id: true,
@@ -3969,6 +3970,8 @@ export class BookingsService {
             session_duration_minutes: true,
             session_price: true,
             is_verified: true,
+            rating_count: true,
+            avg_rating: true,
           },
         },
       },
