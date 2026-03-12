@@ -19,13 +19,13 @@ export class CreateUserDto {
   @ApiProperty()
   location?: string;
 
-  @IsOptional()
+  @IsNotEmpty()
   @ApiProperty({ required: false })
-  latitude?: number;
+  latitude: number;
 
-  @IsOptional()
+  @IsNotEmpty()
   @ApiProperty({ required: false })
-  longitude?: number;
+  longitude: number;
 
   @ApiProperty()
   referral?: string;
