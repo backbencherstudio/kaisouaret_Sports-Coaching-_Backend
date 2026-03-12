@@ -5,6 +5,20 @@ import { IsOptional } from 'class-validator';
 export class UpdateUserDto extends PartialType(CreateUserDto) {
   @IsOptional()
   @ApiProperty({
+    description: 'Full name of the user',
+    example: 'John Doe',
+  })
+  name?: string;
+
+  @IsOptional()
+  @ApiProperty({
+    description: 'Phone number',
+    example: '+91 9876543210',
+  })
+  phone_number?: string;
+
+  @IsOptional()
+  @ApiProperty({
     description: 'Country',
     example: 'Nigeria',
   })
@@ -40,17 +54,31 @@ export class UpdateUserDto extends PartialType(CreateUserDto) {
 
   @IsOptional()
   @ApiProperty({
-    description: 'Phone number',
-    example: '+91 9876543210',
-  })
-  phone_number?: string;
-
-  @IsOptional()
-  @ApiProperty({
     description: 'Address',
     example: 'New York, USA',
   })
   address?: string;
+
+  @IsOptional()
+  @ApiProperty({
+    description: 'location',
+    example: 'New York, USA',
+  })
+  location?: string;
+
+  @IsOptional()
+  @ApiProperty({
+    description: 'Latitude',
+    example: 40.7128,
+  })
+  latitude?: number;
+
+  @IsOptional()
+  @ApiProperty({
+    description: 'Longitude',
+    example: -74.006,
+  })
+  longitude?: number;
 
   @IsOptional()
   @ApiProperty({
@@ -134,5 +162,14 @@ export class UpdateUserDto extends PartialType(CreateUserDto) {
 
   @IsOptional()
   @ApiProperty({ required: false })
+  session_price?: number;
+
+  @IsOptional()
+  @ApiProperty({ required: false })
   hourly_currency?: string;
+
+  @IsOptional()
+  @ApiProperty({ required: false })
+  session_duration_minutes?: string;
+
 }

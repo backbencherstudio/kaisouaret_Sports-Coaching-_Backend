@@ -450,6 +450,23 @@ export class AuthService {
     });
   }
 
+  // Parse a DTO string field that may be comma-separated or a JSON array
+  // into a string array suitable for Prisma String[] columns.
+  private parseStringArray(value: string | string[] | undefined): string[] {
+    if (!value) return [];
+    if (Array.isArray(value)) return value.filter(Boolean);
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
+    } catch {
+      // fall through to comma split
+    }
+    return value
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+
   async updateUser(
     userId: string,
     updateUserDto: UpdateUserDto,
@@ -461,115 +478,110 @@ export class AuthService {
         throw new NotFoundException('User not found');
       }
 
-      const data: any = {};
-      if (updateUserDto.name) {
-        data.name = updateUserDto.name;
-      }
-      if (updateUserDto.phone_number) {
-        data.phone_number = updateUserDto.phone_number;
-      }
-      if (updateUserDto.location) {
-        data.location = updateUserDto.location;
-      }
-      if (updateUserDto.latitude) {
-        data.latitude = updateUserDto.latitude;
-      }
-      if (updateUserDto.longitude) {
-        data.longitude = updateUserDto.longitude;
-      }
-      if (updateUserDto.date_of_birth) {
-        data.date_of_birth = DateHelper.format(updateUserDto.date_of_birth);
-      }
-      if (updateUserDto.gender) {
-        data.gender = updateUserDto.gender;
-      }
-      if (updateUserDto.bio) {
-        data.bio = updateUserDto.bio;
-      }
-      if (updateUserDto.objectives) {
-        data.objectives = updateUserDto.objectives;
-      }
+      // ── User model fields ──────────────────────────────────────────
+      const userData: any = {};
 
-      if (updateUserDto.goals) {
-        data.goals = updateUserDto.goals;
-      }
-      if (updateUserDto.sports) {
-        data.sports = updateUserDto.sports;
-      }
+      if (updateUserDto.name !== undefined) userData.name = updateUserDto.name;
+      if (updateUserDto.phone_number !== undefined) userData.phone_number = updateUserDto.phone_number;
+      if (updateUserDto.country !== undefined) userData.country = updateUserDto.country;
+      if (updateUserDto.state !== undefined) userData.state = updateUserDto.state;
+      if (updateUserDto.city !== undefined) userData.city = updateUserDto.city;
+      if (updateUserDto.zip_code !== undefined) userData.zip_code = updateUserDto.zip_code;
+      if (updateUserDto.address !== undefined) userData.address = updateUserDto.address;
+      if (updateUserDto.location !== undefined) userData.location = updateUserDto.location;
+      if (updateUserDto.latitude !== undefined) userData.latitude = updateUserDto.latitude;
+      if (updateUserDto.longitude !== undefined) userData.longitude = updateUserDto.longitude;
+      if (updateUserDto.gender !== undefined) userData.gender = updateUserDto.gender;
+      if (updateUserDto.date_of_birth !== undefined) userData.date_of_birth = DateHelper.format(updateUserDto.date_of_birth);
+      if (updateUserDto.bio !== undefined) userData.bio = updateUserDto.bio;
+      if (updateUserDto.objectives !== undefined) userData.objectives = updateUserDto.objectives;
+      if (updateUserDto.goals !== undefined) userData.goals = updateUserDto.goals;
+      if (updateUserDto.sports !== undefined) userData.sports = updateUserDto.sports;
 
-      // coach profile fields
-      if (updateUserDto.primary_specialty) {
-        data.primary_specialty = updateUserDto.primary_specialty;
-      }
-      if (updateUserDto.specialties) {
-        data.specialties = updateUserDto.specialties;
-      }
-
-      let mediaUrl: string | undefined;
-
+      // ── Avatar upload ──────────────────────────────────────────────
       if (avatar?.buffer) {
         try {
-          // 1. Upload new avatar
           const safeName = avatar.originalname
             .toLowerCase()
-            .replace(/[^a-z0-9.\s-_]/g, '') // keep only valid chars
-            .replace(/\s+/g, '-') // spaces → -
-            .replace(/-+/g, '-'); // remove double dashes
+            .replace(/[^a-z0-9.\s-_]/g, '')
+            .replace(/\s+/g, '-')
+            .replace(/-+/g, '-');
 
           const fileName = `${StringHelper.randomString()}-${safeName}`;
           const key = `${appConfig().storageUrl.avatar}/${fileName}`;
 
           await SazedStorage.put(key, avatar.buffer);
-          mediaUrl = SazedStorage.url(encodeURI(key));
+          userData.avatar = SazedStorage.url(encodeURI(key));
 
-          // 2. Get old avatar (if any)
+          // Delete old avatar if present
           const existingUser = await this.prisma.user.findUnique({
             where: { id: userId },
             select: { avatar: true },
           });
-
-          // 3. Delete old avatar if exists and is not empty
           if (existingUser?.avatar) {
             try {
-              // If avatar stored is a full URL -> extract its path
               const url = new URL(existingUser.avatar);
-              const oldKey = url.pathname.replace(/^\/+/, ''); // remove leading slash
-
-              await SazedStorage.delete(oldKey);
+              await SazedStorage.delete(url.pathname.replace(/^\/+/, ''));
             } catch {
-              // If it wasn't a URL, assume it is the actual storage key
               await SazedStorage.delete(existingUser.avatar);
             }
           }
-
-          // 4. Update user's avatar
-          data.avatar = mediaUrl;
         } catch (err: any) {
           console.warn('Avatar upload failed:', err.message || err);
         }
       }
 
-      // If user is a coach, update coach profile fields via upsert
+      // ── CoachProfile fields (coach only) ───────────────────────────
       if (user.type === 'coach') {
-        await this.prisma.coachProfile.upsert({
-          where: { user_id: userId },
-          update: {
-            primary_specialty: data.primary_specialty,
-            specialties: data.specialties,
-          },
-          create: {
-            user_id: userId,
-            primary_specialty: data.primary_specialty,
-            specialties: data.specialties,
-          },
-        });
+        const coachData: any = {};
+
+        if (updateUserDto.primary_specialty !== undefined)
+          coachData.primary_specialty = updateUserDto.primary_specialty;
+
+        if (updateUserDto.experience_level !== undefined)
+          coachData.experience_level = updateUserDto.experience_level;
+
+        if (updateUserDto.hourly_rate !== undefined)
+          coachData.hourly_rate = updateUserDto.hourly_rate;
+
+        if (updateUserDto.session_price !== undefined)
+          coachData.session_price = updateUserDto.session_price;
+
+        if (updateUserDto.hourly_currency !== undefined)
+          coachData.hourly_currency = updateUserDto.hourly_currency;
+
+        if (updateUserDto.session_duration_minutes !== undefined) {
+          const parsed = parseInt(String(updateUserDto.session_duration_minutes), 10);
+          if (!isNaN(parsed)) coachData.session_duration_minutes = parsed;
+        }
+
+        if (updateUserDto.specialties !== undefined)
+          coachData.specialties = this.parseStringArray(updateUserDto.specialties);
+
+        if (updateUserDto.certifications !== undefined)
+          coachData.certifications = this.parseStringArray(updateUserDto.certifications);
+
+        // Mirror location/coordinates to coach profile as well
+        if (updateUserDto.location !== undefined) coachData.location = updateUserDto.location;
+        if (updateUserDto.latitude !== undefined) coachData.latitude = updateUserDto.latitude;
+        if (updateUserDto.longitude !== undefined) coachData.longitude = updateUserDto.longitude;
+
+        if (Object.keys(coachData).length > 0) {
+          await this.prisma.coachProfile.upsert({
+            where: { user_id: userId },
+            update: coachData,
+            create: { user_id: userId, ...coachData },
+          });
+        }
       }
 
-      // non-coach (athlete) update path
-      await (this.prisma as any).user.update({
-        where: { id: userId },
-        data: { ...data },
-      });
+      // ── Update User model ──────────────────────────────────────────
+      if (Object.keys(userData).length > 0) {
+        await this.prisma.user.update({
+          where: { id: userId },
+          data: userData,
+        });
+      }
 
       return {
         success: true,
@@ -577,14 +589,8 @@ export class AuthService {
         data: await UserRepository.getUserDetails(userId),
       };
     } catch (error) {
-      // Re-throw NestJS exceptions
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-      // Throw generic error
-      throw new BadRequestException(
-        error?.message ?? 'Failed to update profile',
-      );
+      if (error instanceof NotFoundException) throw error;
+      throw new BadRequestException(error?.message ?? 'Failed to update profile');
     }
   }
 
