@@ -3869,15 +3869,38 @@ export class BookingsService {
 
     const ors: any[] = [];
 
-    // prefer coaches matching athlete.sports
+    // prefer coaches matching athlete.sports (supports comma-separated values)
     if (athlete && athlete.sports) {
-      const sport = athlete.sports;
-      ors.push({ coach_profile: { is: { specialties: { has: sport } } } });
-      ors.push({
-        coach_profile: {
-          is: { primary_specialty: { contains: sport, mode: 'insensitive' } },
-        },
-      });
+      const athleteSports = Array.from(
+        new Set(
+          String(athlete.sports)
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean),
+        ),
+      );
+
+      if (athleteSports.length > 0) {
+        ors.push({
+          coach_profile: {
+            is: {
+              specialties: {
+                hasSome: athleteSports,
+              },
+            },
+          },
+        });
+
+        for (const sport of athleteSports) {
+          ors.push({
+            coach_profile: {
+              is: {
+                primary_specialty: { contains: sport, mode: 'insensitive' },
+              },
+            },
+          });
+        }
+      }
     }
 
     // optional search text
