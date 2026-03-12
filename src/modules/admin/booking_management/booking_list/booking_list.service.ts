@@ -507,28 +507,42 @@ export class BookingListService {
           status: 1,
         },
       });
-      const notificationPromises = recipientUserIds.map(async (receiverId) => {
-        return this.prisma.notification.create({
-          data: {
-            notification_event_id: notificationEvent.id,
-            receiver_id: receiverId,
-            status: 1,
-          },
-        });
+
+      // Avoid creating one DB connection per recipient by batching inserts.
+      const uniqueRecipientIds = Array.from(new Set(recipientUserIds));
+      const createResult = await this.prisma.notification.createMany({
+        data: uniqueRecipientIds.map((receiverId) => ({
+          notification_event_id: notificationEvent.id,
+          receiver_id: receiverId,
+          status: 1,
+        })),
       });
-      const notifications = await Promise.all(notificationPromises);
+
+      const sampleNotifications = await this.prisma.notification.findMany({
+        where: {
+          notification_event_id: notificationEvent.id,
+        },
+        select: {
+          id: true,
+        },
+        take: 5,
+        orderBy: {
+          created_at: 'desc',
+        },
+      });
+
       return {
         success: true,
-        message: `Bulk notification sent successfully to ${notifications.length} recipients`,
+        message: `Bulk notification sent successfully to ${createResult.count} recipients`,
         data: {
           notification_title,
           message_content,
           recipient_type,
-          total_recipients: notifications.length,
-          notifications_created: notifications.length,
+          total_recipients: uniqueRecipientIds.length,
+          notifications_created: createResult.count,
           notification_event_id: notificationEvent.id,
           created_at: new Date(),
-          sample_notification_ids: notifications.slice(0, 5).map(n => n.id),
+          sample_notification_ids: sampleNotifications.map((n) => n.id),
         },
       };
     } catch (error: any) {
