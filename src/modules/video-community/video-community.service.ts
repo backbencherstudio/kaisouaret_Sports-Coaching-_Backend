@@ -4,6 +4,11 @@ import {
   NotFoundException,
   ForbiddenException,
 } from '@nestjs/common';
+import { mkdtemp, rm, writeFile } from 'fs/promises';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import ffmpeg from 'fluent-ffmpeg';
+import ffprobeStatic from 'ffprobe-static';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreatePostDto } from './dto/video-community-create.dto';
 import { SazedStorage } from 'src/common/lib/Disk/SazedStorage';
@@ -12,9 +17,59 @@ import { StringHelper } from 'src/common/helper/string.helper';
 
 type ListOptions = { page?: number; perPage?: number };
 
+if (ffprobeStatic.path) {
+  ffmpeg.setFfprobePath(ffprobeStatic.path);
+}
+
 @Injectable()
 export class VideoCommunityService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private async extractVideoDuration(video: Express.Multer.File): Promise<number> {
+    if (!video?.buffer?.length) {
+      throw new BadRequestException('Uploaded video file is empty');
+    }
+
+    const tempDir = await mkdtemp(join(tmpdir(), 'video-community-'));
+    const safeName = video.originalname
+      .toLowerCase()
+      .replace(/[^a-z0-9.\s-_]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-');
+    const tempFilePath = join(
+      tempDir,
+      `${StringHelper.randomString()}-${safeName || 'upload-video'}`,
+    );
+
+    try {
+      await writeFile(tempFilePath, video.buffer);
+
+      const duration = await new Promise<number>((resolve, reject) => {
+        ffmpeg.ffprobe(tempFilePath, (error, metadata) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+
+          const seconds = metadata?.format?.duration;
+          if (!seconds || Number.isNaN(seconds)) {
+            reject(new Error('Unable to detect video duration'));
+            return;
+          }
+
+          resolve(Math.max(1, Math.round(seconds)));
+        });
+      });
+
+      return duration;
+    } catch (error) {
+      throw new BadRequestException(
+        `Failed to extract video duration: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  }
 
   private async hasActiveAthleteSubscription(userId: string): Promise<boolean> {
     if (!userId) return false;
@@ -56,12 +111,23 @@ export class VideoCommunityService {
     if (user.type !== 'coach')
       throw new ForbiddenException('Only coaches can post videos');
 
+    if (!video?.buffer && !dto.video_url) {
+      throw new BadRequestException('Video file or video_url is required');
+    }
+
     let mediaUrl: string | undefined = undefined;
     let thumbnailUrl: string | undefined = undefined;
+    let videoDuration: number | null = null;
 
     // upload file to s3 or minIO
     if (video?.buffer) {
       try {
+        if (!video.mimetype?.startsWith('video/')) {
+          throw new BadRequestException('Uploaded file must be a video');
+        }
+
+        videoDuration = await this.extractVideoDuration(video);
+
         const fileName = `${StringHelper.randomString()}${video.originalname}`;
         await SazedStorage.put(
           appConfig().storageUrl.video + '/' + fileName,
@@ -79,6 +145,7 @@ export class VideoCommunityService {
       }
     } else if (dto.video_url) {
       mediaUrl = dto.video_url;
+      videoDuration = dto.duration ?? null;
     }
 
     // upload thumbnail image
@@ -108,7 +175,7 @@ export class VideoCommunityService {
       data: {
         coach_id: coachId,
         title: dto.title,
-        duration: dto.duration || null,
+        duration: videoDuration,
         description: dto.description || null,
         video_url: mediaUrl || '',
         thumbnail: thumbnailUrl || null,
