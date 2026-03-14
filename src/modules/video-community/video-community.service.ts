@@ -7,8 +7,8 @@ import {
 import { mkdtemp, rm, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import ffmpeg from 'fluent-ffmpeg';
-import ffprobeStatic from 'ffprobe-static';
+import * as ffmpegModule from 'fluent-ffmpeg';
+import * as ffprobeStatic from 'ffprobe-static';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreatePostDto } from './dto/video-community-create.dto';
 import { SazedStorage } from 'src/common/lib/Disk/SazedStorage';
@@ -17,8 +17,16 @@ import { StringHelper } from 'src/common/helper/string.helper';
 
 type ListOptions = { page?: number; perPage?: number };
 
-if (ffprobeStatic.path) {
-  ffmpeg.setFfprobePath(ffprobeStatic.path);
+const ffmpeg =
+  ((ffmpegModule as unknown as { default?: typeof ffmpegModule }).default ||
+    ffmpegModule) as typeof ffmpegModule;
+
+const ffprobePath =
+  (ffprobeStatic as { path?: string }).path ||
+  (ffprobeStatic as { default?: { path?: string } }).default?.path;
+
+if (ffprobePath) {
+  ffmpeg.setFfprobePath(ffprobePath);
 }
 
 @Injectable()
