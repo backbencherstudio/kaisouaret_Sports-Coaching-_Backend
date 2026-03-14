@@ -7,7 +7,7 @@ import {
   Query,
   Param,
   UseInterceptors,
-  UploadedFile,
+  UploadedFiles,
 } from '@nestjs/common';
 import { VideoCommunityService } from './video-community.service';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -16,7 +16,7 @@ import { AthleteVideoGuard } from './guards/athlete-video.guard';
 import { GetUser } from '../auth/decorators/get-user.decorator';
 import { CreatePostDto } from './dto/video-community-create.dto';
 import { memoryStorage } from 'multer';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { hasSubscribers, subscribe } from 'diagnostics_channel';
 
 @Controller('video-community')
@@ -30,22 +30,35 @@ export class VideoCommunityController {
   })
   @Post('post')
   @UseInterceptors(
-    FileInterceptor('video', {
+    FileFieldsInterceptor([
+      { name: 'video', maxCount: 1 },
+      { name: 'thumbnail', maxCount: 1 },
+    ], {
       storage: memoryStorage(),
     }),
   )
   async communityPost(
     @GetUser('userId') coachId: string,
     @Body() body: CreatePostDto,
-    @UploadedFile() video?: Express.Multer.File,
+    @UploadedFiles()
+    files?: {
+      video?: Express.Multer.File[];
+      thumbnail?: Express.Multer.File[];
+    },
   ) {
-    console.log('video', video);
+    const video = files?.video?.[0];
+    const thumbnail = files?.thumbnail?.[0];
 
-    if (!coachId && !video) {
+    if (!coachId) {
       throw new Error('Invalid coachId or file');
     }
 
-    return this.videoCommunityService.communityPost(coachId, body, video);
+    return this.videoCommunityService.communityPost(
+      coachId,
+      body,
+      video,
+      thumbnail,
+    );
   }
 
   @ApiOperation({

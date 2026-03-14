@@ -47,6 +47,7 @@ export class VideoCommunityService {
     coachId: string,
     dto: CreatePostDto,
     video?: Express.Multer.File,
+    thumbnail?: Express.Multer.File,
   ) {
     if (!coachId) throw new BadRequestException('Coach ID is required');
 
@@ -56,6 +57,7 @@ export class VideoCommunityService {
       throw new ForbiddenException('Only coaches can post videos');
 
     let mediaUrl: string | undefined = undefined;
+    let thumbnailUrl: string | undefined = undefined;
 
     // upload file to s3 or minIO
     if (video?.buffer) {
@@ -79,6 +81,29 @@ export class VideoCommunityService {
       mediaUrl = dto.video_url;
     }
 
+    // upload thumbnail image
+    if (thumbnail?.buffer) {
+      try {
+        const safeName = thumbnail.originalname
+          .toLowerCase()
+          .replace(/[^a-z0-9.\s-_]/g, '')
+          .replace(/\s+/g, '-')
+          .replace(/-+/g, '-');
+
+        const fileName = `${StringHelper.randomString()}-${safeName}`;
+        const key = `${appConfig().storageUrl.thumbnail}/${fileName}`;
+
+        await SazedStorage.put(key, thumbnail.buffer);
+
+        thumbnailUrl = SazedStorage.url(encodeURI(key));
+      } catch (error) {
+        console.error('Failed to upload thumbnail:', error);
+        throw new Error(`Failed to upload thumbnail: ${error.message}`);
+      }
+    } else if (dto.thumbnail_key) {
+      thumbnailUrl = dto.thumbnail_key;
+    }
+
     const postData = await this.prisma.video.create({
       data: {
         coach_id: coachId,
@@ -86,6 +111,7 @@ export class VideoCommunityService {
         duration: dto.duration || null,
         description: dto.description || null,
         video_url: mediaUrl || '',
+        thumbnail: thumbnailUrl || null,
         // is_premium: dto.is_premium || false,
       },
       select: {
@@ -99,7 +125,7 @@ export class VideoCommunityService {
         created_at: true,
       },
     });
-    
+
     return {
       success: true,
       message: 'Video post created successfully',
@@ -199,7 +225,9 @@ export class VideoCommunityService {
     if (video.is_premium) {
       const ok = await this.hasActiveAthleteSubscription(requestingUserId);
       if (!ok)
-        throw new ForbiddenException('This video is for subscribed athletes only');
+        throw new ForbiddenException(
+          'This video is for subscribed athletes only',
+        );
     }
 
     // increment view count (fire-and-forget)

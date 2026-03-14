@@ -109,6 +109,7 @@ export default () => ({
     avatar: 'avatar',
     video: 'video',
     photo: 'photo',
+    thumbnail: 'thumbnail',
     websiteInfo: 'website-info',
     attachment: 'attachment',
   },

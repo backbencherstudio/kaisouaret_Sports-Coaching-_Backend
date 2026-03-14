@@ -101,7 +101,27 @@ export class S3Adapter implements IStorage {
         params.ContentType = contentType;
       }
 
-      const upload = await this.s3.upload(params).promise();
+      // ManagedUpload performs multipart upload internally for large objects.
+      // queueSize = concurrent part uploads ("workers")
+      // partSize = bytes per part
+      const queueSizeEnv = Number(process.env.S3_UPLOAD_QUEUE_SIZE || 5);
+      const partSizeMbEnv = Number(process.env.S3_UPLOAD_PART_SIZE_MB || 10);
+
+      const queueSize =
+        Number.isFinite(queueSizeEnv) && queueSizeEnv > 0
+          ? Math.floor(queueSizeEnv)
+          : 5;
+      const partSizeMb =
+        Number.isFinite(partSizeMbEnv) && partSizeMbEnv >= 5
+          ? Math.floor(partSizeMbEnv)
+          : 10;
+
+      const upload = await this.s3
+        .upload(params, {
+          queueSize,
+          partSize: partSizeMb * 1024 * 1024,
+        })
+        .promise();
       return upload;
     } catch (error) {
       throw error;
