@@ -11,6 +11,7 @@ export class S3Adapter implements IStorage {
 
   constructor(config: DiskOption) {
     this._config = config;
+    const retryAttemptsEnv = Number(process.env.S3_UPLOAD_RETRY_ATTEMPTS);
     const awsConfig: AWS.S3.ClientConfiguration = {
       endpoint: this._config.connection.awsEndpoint,
       region: this._config.connection.awsDefaultRegion,
@@ -18,6 +19,10 @@ export class S3Adapter implements IStorage {
         accessKeyId: this._config.connection.awsAccessKeyId,
         secretAccessKey: this._config.connection.awsSecretAccessKey,
       },
+      maxRetries:
+        Number.isFinite(retryAttemptsEnv) && retryAttemptsEnv >= 0
+          ? Math.floor(retryAttemptsEnv)
+          : 3,
     };
     if (this._config.connection.minio) {
       // s3ForcePathStyle: true, // Required for MinIO
