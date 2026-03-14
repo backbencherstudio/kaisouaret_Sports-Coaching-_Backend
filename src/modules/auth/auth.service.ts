@@ -93,6 +93,7 @@ export class AuthService {
               location: true,
               latitude: true,
               longitude: true,
+              languages: true,
             },
           },
         },
@@ -482,21 +483,34 @@ export class AuthService {
       const userData: any = {};
 
       if (updateUserDto.name !== undefined) userData.name = updateUserDto.name;
-      if (updateUserDto.phone_number !== undefined) userData.phone_number = updateUserDto.phone_number;
-      if (updateUserDto.country !== undefined) userData.country = updateUserDto.country;
-      if (updateUserDto.state !== undefined) userData.state = updateUserDto.state;
+      if (updateUserDto.phone_number !== undefined)
+        userData.phone_number = updateUserDto.phone_number;
+      if (updateUserDto.country !== undefined)
+        userData.country = updateUserDto.country;
+      if (updateUserDto.state !== undefined)
+        userData.state = updateUserDto.state;
       if (updateUserDto.city !== undefined) userData.city = updateUserDto.city;
-      if (updateUserDto.zip_code !== undefined) userData.zip_code = updateUserDto.zip_code;
-      if (updateUserDto.address !== undefined) userData.address = updateUserDto.address;
-      if (updateUserDto.location !== undefined) userData.location = updateUserDto.location;
-      if (updateUserDto.latitude !== undefined) userData.latitude = updateUserDto.latitude;
-      if (updateUserDto.longitude !== undefined) userData.longitude = updateUserDto.longitude;
-      if (updateUserDto.gender !== undefined) userData.gender = updateUserDto.gender;
-      if (updateUserDto.date_of_birth !== undefined) userData.date_of_birth = DateHelper.format(updateUserDto.date_of_birth);
+      if (updateUserDto.zip_code !== undefined)
+        userData.zip_code = updateUserDto.zip_code;
+      if (updateUserDto.address !== undefined)
+        userData.address = updateUserDto.address;
+      if (updateUserDto.location !== undefined)
+        userData.location = updateUserDto.location;
+      if (updateUserDto.latitude !== undefined)
+        userData.latitude = updateUserDto.latitude;
+      if (updateUserDto.longitude !== undefined)
+        userData.longitude = updateUserDto.longitude;
+      if (updateUserDto.gender !== undefined)
+        userData.gender = updateUserDto.gender;
+      if (updateUserDto.date_of_birth !== undefined)
+        userData.date_of_birth = DateHelper.format(updateUserDto.date_of_birth);
       if (updateUserDto.bio !== undefined) userData.bio = updateUserDto.bio;
-      if (updateUserDto.objectives !== undefined) userData.objectives = updateUserDto.objectives;
-      if (updateUserDto.goals !== undefined) userData.goals = updateUserDto.goals;
-      if (updateUserDto.sports !== undefined) userData.sports = updateUserDto.sports;
+      if (updateUserDto.objectives !== undefined)
+        userData.objectives = updateUserDto.objectives;
+      if (updateUserDto.goals !== undefined)
+        userData.goals = updateUserDto.goals;
+      if (updateUserDto.sports !== undefined)
+        userData.sports = updateUserDto.sports;
 
       // ── Avatar upload ──────────────────────────────────────────────
       if (avatar?.buffer) {
@@ -551,20 +565,32 @@ export class AuthService {
           coachData.hourly_currency = updateUserDto.hourly_currency;
 
         if (updateUserDto.session_duration_minutes !== undefined) {
-          const parsed = parseInt(String(updateUserDto.session_duration_minutes), 10);
+          const parsed = parseInt(
+            String(updateUserDto.session_duration_minutes),
+            10,
+          );
           if (!isNaN(parsed)) coachData.session_duration_minutes = parsed;
         }
 
         if (updateUserDto.specialties !== undefined)
-          coachData.specialties = this.parseStringArray(updateUserDto.specialties);
+          coachData.specialties = this.parseStringArray(
+            updateUserDto.specialties,
+          );
 
         if (updateUserDto.certifications !== undefined)
-          coachData.certifications = this.parseStringArray(updateUserDto.certifications);
+          coachData.certifications = this.parseStringArray(
+            updateUserDto.certifications,
+          );
 
         // Mirror location/coordinates to coach profile as well
-        if (updateUserDto.location !== undefined) coachData.location = updateUserDto.location;
-        if (updateUserDto.latitude !== undefined) coachData.latitude = updateUserDto.latitude;
-        if (updateUserDto.longitude !== undefined) coachData.longitude = updateUserDto.longitude;
+        if (updateUserDto.location !== undefined)
+          coachData.location = updateUserDto.location;
+        if (updateUserDto.latitude !== undefined)
+          coachData.latitude = updateUserDto.latitude;
+        if (updateUserDto.longitude !== undefined)
+          coachData.longitude = updateUserDto.longitude;
+        if (updateUserDto.languages !== undefined)
+          coachData.languages = this.parseStringArray(updateUserDto.languages);
 
         if (Object.keys(coachData).length > 0) {
           await this.prisma.coachProfile.upsert({
@@ -590,7 +616,9 @@ export class AuthService {
       };
     } catch (error) {
       if (error instanceof NotFoundException) throw error;
-      throw new BadRequestException(error?.message ?? 'Failed to update profile');
+      throw new BadRequestException(
+        error?.message ?? 'Failed to update profile',
+      );
     }
   }
 

@@ -5,6 +5,7 @@ import { MiddlewareConsumer, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { BullModule } from '@nestjs/bullmq';
 import { RedisModule } from '@nestjs-modules/ioredis';
+import { MulterModule } from '@nestjs/platform-express';
 
 // internal imports
 import appConfig from './config/app.config';
@@ -52,6 +53,12 @@ import { MapModule } from './modules/map/map.module';
         host: appConfig().redis.host,
         password: appConfig().redis.password,
         port: +appConfig().redis.port,
+      },
+    }),
+    MulterModule.register({
+      limits: {
+        // Global upload cap for multipart file fields
+        fileSize: 300 * 1024 * 1024,
       },
     }),
 
