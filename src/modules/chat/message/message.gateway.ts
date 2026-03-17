@@ -36,19 +36,23 @@ export class MessageGateway
   // implement jwt token validation
   async handleConnection(client: Socket, ...args: any[]) {
     try {
-      const token = client.handshake.auth?.token;
+      const token =
+        client.handshake.auth?.token ||
+        client.handshake?.headers?.authorization?.split(' ')[1];
+
       if (!token) {
         client.disconnect();
         console.log('No token provided');
-        return;
+        throw new Error('No token provided');
       }
 
       const decoded: any = jwt.verify(token, appConfig().jwt.secret);
       const userId = decoded?.sub;
+      
       if (!userId) {
         client.disconnect();
         console.log('Invalid token');
-        return;
+        throw new Error('Invalid token');
       }
 
       this.clients.set(userId, client.id);
@@ -82,25 +86,46 @@ export class MessageGateway
   }
 
   @SubscribeMessage('joinRoom')
-  handleRoomJoin(client: Socket, body: { room_id: string }) {
-    const roomId = body.room_id;
-    client.join(roomId);
-    client.emit('joinedRoom', { room_id: roomId });
+  handleRoomJoin(client: Socket, body: { conversation_id: string }) {
+    const conversationId = body.conversation_id;
+    client.join(conversationId);
+    console.log(`Client joined room: ${conversationId}`);
+    this.server.to(conversationId).emit('joinedRoom', { 
+      conversation_id: conversationId,
+      user_id: [...this.clients.entries()].find(
+        ([, socketId]) => socketId === client.id,
+      )?.[0],
+    });
   }
 
   @SubscribeMessage('sendMessage')
   async listenForMessages(
     client: Socket,
-    @MessageBody() body: { to: string; data: any },
+    @MessageBody() body: { 
+      receiver_id: string; 
+      conversation_id: string; 
+      message: string; 
+      message_id?: string;
+      attachment?: any;
+    },
   ) {
-    const recipientSocketId = this.clients.get(body.to);
-    const senderId = [...this.clients.entries()].find(([, socketId]) => socketId === client.id)?.[0];
-    if (recipientSocketId) {
-      this.server.to(recipientSocketId).emit('message', {
-        from: senderId,
-        data: body.data,
-      });
-    }
+    const senderId = [...this.clients.entries()].find(
+      ([, socketId]) => socketId === client.id,
+    )?.[0];
+    
+    console.log(`Message from ${senderId} to ${body.receiver_id}: ${body.message}`);
+    
+    // Broadcast to the entire conversation room (both sender and receiver see it)
+    this.server.to(body.conversation_id).emit('message', {
+      message_id: body.message_id || `msg_${Date.now()}`,
+      sender_id: senderId,
+      receiver_id: body.receiver_id,
+      conversation_id: body.conversation_id,
+      message: body.message,
+      attachment: body.attachment || null,
+      created_at: new Date().toISOString(),
+      status: 'DELIVERED',
+    });
   }
 
   @SubscribeMessage('updateMessageStatus')
@@ -116,30 +141,23 @@ export class MessageGateway
   }
 
   @SubscribeMessage('typing')
-  handleTyping(client: Socket, @MessageBody() body: { to: string; data: any }) {
-    const recipientSocketId = this.clients.get(body.to);
-    const senderId = [...this.clients.entries()].find(([, socketId]) => socketId === client.id)?.[0];
-    if (recipientSocketId) {
-      this.server.to(recipientSocketId).emit('userTyping', {
-        from: senderId,
-        data: body.data,
-      });
-    }
+  handleTyping(client: Socket, @MessageBody() body: { conversation_id: string; sender_id: string }) {
+    // Broadcast to all users in the conversation room
+    this.server.to(body.conversation_id).emit('userTyping', {
+      conversation_id: body.conversation_id,
+      sender_id: body.sender_id,
+    });
   }
 
   @SubscribeMessage('stopTyping')
   handleStopTyping(
     client: Socket,
-    @MessageBody() body: { to: string; data: any },
+    @MessageBody() body: { conversation_id: string; sender_id: string },
   ) {
-    const recipientSocketId = this.clients.get(body.to);
-    const senderId = [...this.clients.entries()].find(([, socketId]) => socketId === client.id)?.[0];
-    if (recipientSocketId) {
-      this.server.to(recipientSocketId).emit('userStoppedTyping', {
-        from: senderId,
-        data: body.data,
-      });
-    }
+    // Broadcast to all users in the conversation room
+    this.server.to(body.conversation_id).emit('userStoppedTyping', {
+      conversation_id: body.conversation_id,
+      sender_id: body.sender_id,
+    });
   }
 }
-
