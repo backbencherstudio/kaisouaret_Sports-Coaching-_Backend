@@ -1,7 +1,9 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   NotFoundException,
+  forwardRef,
 } from '@nestjs/common';
 import { MessageStatus } from '@prisma/client';
 import appConfig from '../../../config/app.config';
@@ -25,6 +27,7 @@ import { BookingUpdateViaChatDto } from './dto/booking-update.dto';
 export class MessageService {
   constructor(
     private prisma: PrismaService,
+    @Inject(forwardRef(() => MessageGateway))
     private readonly messageGateway: MessageGateway,
     private readonly bookingsService: BookingsService,
     private readonly notificationsService: NotificationsService,
