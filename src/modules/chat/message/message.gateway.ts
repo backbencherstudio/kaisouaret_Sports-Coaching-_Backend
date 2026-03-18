@@ -7,7 +7,6 @@ import {
   OnGatewayDisconnect,
   WebSocketServer,
 } from '@nestjs/websockets';
-import { Inject, forwardRef } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { MessageStatus } from '@prisma/client';
 import * as jwt from 'jsonwebtoken';
@@ -23,10 +22,21 @@ import { MessageService } from './message.service';
 export class MessageGateway
   implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
 {
-  constructor(
-    @Inject(forwardRef(() => MessageService))
-    private readonly messageService: MessageService,
-  ) {}
+  constructor(private readonly messageService: MessageService) {}
+
+  private getUserIdFromClient(client: Socket | undefined): string | undefined {
+    if (!client) {
+      return undefined;
+    }
+
+    const fromSocketData = (client.data as { userId?: string } | undefined)
+      ?.userId;
+    if (fromSocketData) {
+      return fromSocketData;
+    }
+
+    return [...this.clients.entries()].find(([, socketId]) => socketId === client.id)?.[0];
+  }
 
   @WebSocketServer()
   server: Server;
@@ -63,6 +73,10 @@ export class MessageGateway
       }
 
       this.clients.set(userId, client.id);
+      client.data = {
+        ...(client.data || {}),
+        userId,
+      };
       await ChatRepository.updateUserStatus(userId, 'online');
       this.server.emit('userStatusChange', {
         user_id: userId,
@@ -95,13 +109,12 @@ export class MessageGateway
   @SubscribeMessage('joinRoom')
   handleRoomJoin(client: Socket, body: { conversation_id: string }) {
     const conversationId = body.conversation_id;
+    const userId = this.getUserIdFromClient(client);
     client.join(conversationId);
     console.log(`Client joined room: ${conversationId}`);
     this.server.to(conversationId).emit('joinedRoom', { 
       conversation_id: conversationId,
-      user_id: [...this.clients.entries()].find(
-        ([, socketId]) => socketId === client.id,
-      )?.[0],
+      user_id: userId,
     });
   }
 
@@ -116,13 +129,11 @@ export class MessageGateway
       attachment?: any;
     },
   ) {
-    const senderId = [...this.clients.entries()].find(
-      ([, socketId]) => socketId === client.id,
-    )?.[0];
+    const senderId = this.getUserIdFromClient(client);
 
     if (!senderId) {
       client.emit('chatError', { message: 'Unauthorized socket client' });
-      return;
+      return { success: false, message: 'Unauthorized socket client' };
     }
     
     console.log(`Message from ${senderId} to ${body.receiver_id}: ${body.message}`);
@@ -137,7 +148,10 @@ export class MessageGateway
       client.emit('chatError', {
         message: persisted?.message || 'Failed to store message',
       });
-      return;
+      return {
+        success: false,
+        message: persisted?.message || 'Failed to store message',
+      };
     }
 
     // Broadcast persisted payload to the entire conversation room.
@@ -147,10 +161,19 @@ export class MessageGateway
       receiver_id: persisted.data.receiver_id,
       conversation_id: persisted.data.conversation_id,
       message: persisted.data.message,
+      attachment_id: persisted.data.attachment_id || null,
       attachment: body.attachment || null,
       created_at: persisted.data.created_at,
       status: persisted.data.status,
     });
+
+    return {
+      success: true,
+      message: 'Message stored and delivered',
+      data: {
+        message_id: persisted.data.id,
+      },
+    };
   }
 
   @SubscribeMessage('updateMessageStatus')
@@ -166,23 +189,32 @@ export class MessageGateway
   }
 
   @SubscribeMessage('typing')
-  handleTyping(client: Socket, @MessageBody() body: { conversation_id: string; sender_id: string }) {
+  handleTyping(
+    client: Socket,
+    @MessageBody() body: { conversation_id: string; sender_id?: string },
+  ) {
+    const senderId =
+      body.sender_id || this.getUserIdFromClient(client);
+
     // Broadcast to all users in the conversation room
     this.server.to(body.conversation_id).emit('userTyping', {
       conversation_id: body.conversation_id,
-      sender_id: body.sender_id,
+      sender_id: senderId,
     });
   }
 
   @SubscribeMessage('stopTyping')
   handleStopTyping(
     client: Socket,
-    @MessageBody() body: { conversation_id: string; sender_id: string },
+    @MessageBody() body: { conversation_id: string; sender_id?: string },
   ) {
+    const senderId =
+      body.sender_id || this.getUserIdFromClient(client);
+
     // Broadcast to all users in the conversation room
     this.server.to(body.conversation_id).emit('userStoppedTyping', {
       conversation_id: body.conversation_id,
-      sender_id: body.sender_id,
+      sender_id: senderId,
     });
   }
 }

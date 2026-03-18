@@ -134,15 +134,6 @@ export class MessageService {
         },
       });
 
-      const recipientSocketId = this.messageGateway.clients.get(
-        data.receiver_id,
-      );
-      if (recipientSocketId) {
-        this.messageGateway.server
-          .to(recipientSocketId)
-          .emit('message', { from: user_id, data: message });
-      }
-
       return {
         success: true,
         data: message,
