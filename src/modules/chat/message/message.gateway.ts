@@ -7,11 +7,13 @@ import {
   OnGatewayDisconnect,
   WebSocketServer,
 } from '@nestjs/websockets';
+import { Inject, forwardRef } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { MessageStatus } from '@prisma/client';
 import * as jwt from 'jsonwebtoken';
 import appConfig from '../../../config/app.config';
 import { ChatRepository } from '../../../common/repository/chat/chat.repository';
+import { MessageService } from './message.service';
 
 @WebSocketGateway({
   cors: {
@@ -21,6 +23,11 @@ import { ChatRepository } from '../../../common/repository/chat/chat.repository'
 export class MessageGateway
   implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
 {
+  constructor(
+    @Inject(forwardRef(() => MessageService))
+    private readonly messageService: MessageService,
+  ) {}
+
   @WebSocketServer()
   server: Server;
 
@@ -112,19 +119,37 @@ export class MessageGateway
     const senderId = [...this.clients.entries()].find(
       ([, socketId]) => socketId === client.id,
     )?.[0];
+
+    if (!senderId) {
+      client.emit('chatError', { message: 'Unauthorized socket client' });
+      return;
+    }
     
     console.log(`Message from ${senderId} to ${body.receiver_id}: ${body.message}`);
-    
-    // Broadcast to the entire conversation room (both sender and receiver see it)
-    this.server.to(body.conversation_id).emit('message', {
-      message_id: body.message_id || `msg_${Date.now()}`,
-      sender_id: senderId,
+
+    const persisted = await this.messageService.create(senderId, {
       receiver_id: body.receiver_id,
       conversation_id: body.conversation_id,
       message: body.message,
+    });
+
+    if (!persisted?.success || !persisted?.data) {
+      client.emit('chatError', {
+        message: persisted?.message || 'Failed to store message',
+      });
+      return;
+    }
+
+    // Broadcast persisted payload to the entire conversation room.
+    this.server.to(body.conversation_id).emit('message', {
+      message_id: persisted.data.id,
+      sender_id: persisted.data.sender_id,
+      receiver_id: persisted.data.receiver_id,
+      conversation_id: persisted.data.conversation_id,
+      message: persisted.data.message,
       attachment: body.attachment || null,
-      created_at: new Date().toISOString(),
-      status: 'DELIVERED',
+      created_at: persisted.data.created_at,
+      status: persisted.data.status,
     });
   }
 
