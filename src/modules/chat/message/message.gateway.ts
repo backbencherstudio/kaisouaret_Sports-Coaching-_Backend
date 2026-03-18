@@ -1,6 +1,7 @@
 import {
   WebSocketGateway,
   SubscribeMessage,
+  ConnectedSocket,
   MessageBody,
   OnGatewayInit,
   OnGatewayConnection,
@@ -107,7 +108,14 @@ export class MessageGateway
   }
 
   @SubscribeMessage('joinRoom')
-  handleRoomJoin(client: Socket, body: { conversation_id: string }) {
+  handleRoomJoin(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { conversation_id: string },
+  ) {
+    if (!client || !body?.conversation_id) {
+      return { success: false, message: 'Invalid join room payload' };
+    }
+
     const conversationId = body.conversation_id;
     const userId = this.getUserIdFromClient(client);
     client.join(conversationId);
@@ -120,7 +128,7 @@ export class MessageGateway
 
   @SubscribeMessage('sendMessage')
   async listenForMessages(
-    client: Socket,
+    @ConnectedSocket() client: Socket,
     @MessageBody() body: { 
       receiver_id: string; 
       conversation_id: string; 
@@ -129,10 +137,14 @@ export class MessageGateway
       attachment?: any;
     },
   ) {
+    if (!client) {
+      return { success: false, message: 'Invalid socket client' };
+    }
+
     const senderId = this.getUserIdFromClient(client);
 
     if (!senderId) {
-      client.emit('chatError', { message: 'Unauthorized socket client' });
+      client?.emit?.('chatError', { message: 'Unauthorized socket client' });
       return { success: false, message: 'Unauthorized socket client' };
     }
     
@@ -145,7 +157,7 @@ export class MessageGateway
     });
 
     if (!persisted?.success || !persisted?.data) {
-      client.emit('chatError', {
+      client?.emit?.('chatError', {
         message: persisted?.message || 'Failed to store message',
       });
       return {
@@ -178,7 +190,7 @@ export class MessageGateway
 
   @SubscribeMessage('updateMessageStatus')
   async updateMessageStatus(
-    client: Socket,
+    @ConnectedSocket() client: Socket,
     @MessageBody() body: { message_id: string; status: MessageStatus },
   ) {
     await ChatRepository.updateMessageStatus(body.message_id, body.status);
@@ -190,7 +202,7 @@ export class MessageGateway
 
   @SubscribeMessage('typing')
   handleTyping(
-    client: Socket,
+    @ConnectedSocket() client: Socket,
     @MessageBody() body: { conversation_id: string; sender_id?: string },
   ) {
     const senderId =
@@ -205,7 +217,7 @@ export class MessageGateway
 
   @SubscribeMessage('stopTyping')
   handleStopTyping(
-    client: Socket,
+    @ConnectedSocket() client: Socket,
     @MessageBody() body: { conversation_id: string; sender_id?: string },
   ) {
     const senderId =
