@@ -41,21 +41,17 @@ export class MessageController {
     const user_id = req.user.userId;
     const message = await this.messageService.create(user_id, createMessageDto);
     if (message.success) {
-      const messageData = {
-        message: {
-          id: message.data.id,
-          message_id: message.data.id,
-          body_text: message.data.message,
-          from: message.data.sender_id,
-          conversation_id: message.data.conversation_id,
-          created_at: message.data.created_at,
-        },
-      };
       this.messageGateway.server
         .to(message.data.conversation_id)
         .emit('message', {
-          from: message.data.sender_id,
-          data: messageData,
+          message_id: message.data.id,
+          sender_id: message.data.sender_id,
+          receiver_id: message.data.receiver_id,
+          conversation_id: message.data.conversation_id,
+          message: message.data.message,
+          attachment_id: message.data.attachment_id || null,
+          created_at: message.data.created_at,
+          status: message.data.status,
         });
       return {
         success: message.success,
