@@ -31,6 +31,14 @@ export class ConversationService {
         data.participant_id = payload.participant_id;
       }
 
+      if (!data.creator_id || !data.participant_id) {
+        throw new NotFoundException('Creator and participant are required');
+      }
+
+      if (data.creator_id === data.participant_id) {
+        throw new ForbiddenException('You cannot create a conversation with yourself');
+      }
+
       // validate users exist and ensure conversations are between a coach and an athlete
       const creatorUser = await this.prisma.user.findUnique({
         where: { id: data.creator_id },
@@ -93,14 +101,33 @@ export class ConversationService {
           },
         },
         where: {
-          creator_id: data.creator_id || data.participant_id,
-          participant_id: data.participant_id || data.creator_id,
+          OR: [
+            {
+              creator_id: data.creator_id,
+              participant_id: data.participant_id,
+            },
+            {
+              creator_id: data.participant_id,
+              participant_id: data.creator_id,
+            },
+          ],
         },
       });
 
       if (conversation) {
+        if (conversation.creator.avatar) {
+          conversation.creator['avatar_url'] = SazedStorage.url(
+            appConfig().storageUrl.avatar + conversation.creator.avatar,
+          );
+        }
+        if (conversation.participant.avatar) {
+          conversation.participant['avatar_url'] = SazedStorage.url(
+            appConfig().storageUrl.avatar + conversation.participant.avatar,
+          );
+        }
+
         return {
-          success: false,
+          success: true,
           message: 'Conversation already exists',
           data: conversation,
         };
