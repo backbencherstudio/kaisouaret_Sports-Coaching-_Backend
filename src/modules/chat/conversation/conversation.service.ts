@@ -93,8 +93,8 @@ export class ConversationService {
           },
         },
         where: {
-          creator_id: data.creator_id,
-          participant_id: data.participant_id,
+          creator_id: data.creator_id || data.participant_id,
+          participant_id: data.participant_id || data.creator_id,
         },
       });
 
@@ -183,10 +183,7 @@ export class ConversationService {
     try {
       const conversations = await this.prisma.conversation.findMany({
         where: {
-          OR: [
-            { creator_id: userId },
-            { participant_id: userId },
-          ],
+          OR: [{ creator_id: userId }, { participant_id: userId }],
         },
         orderBy: {
           updated_at: 'desc',
