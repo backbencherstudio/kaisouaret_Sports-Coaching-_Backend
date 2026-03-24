@@ -285,6 +285,7 @@ export class VideoCommunityService {
                 id: true,
                 primary_specialty: true,
                 specialties: true,
+                certifications: true,
                 experience_level: true,
                 is_verified: true,
                 avg_rating: true,
