@@ -33,6 +33,33 @@ export class MessageService {
     private readonly notificationsService: NotificationsService,
   ) {}
 
+  private emitConversationMessage(
+    conversationId: string,
+    message: {
+      id: string;
+      sender_id: string | null;
+      receiver_id: string | null;
+      conversation_id: string | null;
+      message: string | null;
+      status: MessageStatus | null;
+      created_at: Date;
+      attachment_id?: string | null;
+    },
+    extras?: Record<string, any>,
+  ) {
+    this.messageGateway.server.to(conversationId).emit('message', {
+      message_id: message.id,
+      sender_id: message.sender_id,
+      receiver_id: message.receiver_id,
+      conversation_id: message.conversation_id,
+      message: message.message,
+      attachment_id: message.attachment_id || null,
+      created_at: message.created_at,
+      status: message.status,
+      ...(extras || {}),
+    });
+  }
+
   async create(user_id: string, createMessageDto: CreateMessageDto) {
     try {
       const data: any = {};
@@ -374,18 +401,14 @@ export class MessageService {
         data: { updated_at: DateHelper.now() },
       });
 
-      const recipientSocketId = this.messageGateway.clients.get(
-        booking.user_id,
+      this.emitConversationMessage(
+        customOfferDto.conversation_id,
+        message,
+        {
+          custom_offer: offerResult?.data,
+          message_type: 'CUSTOM_OFFER_SENT',
+        },
       );
-      if (recipientSocketId) {
-        this.messageGateway.server.to(recipientSocketId).emit('message', {
-          from: coachId,
-          data: {
-            ...message,
-            custom_offer: offerResult?.data,
-          },
-        });
-      }
 
       return {
         success: true,
@@ -484,14 +507,9 @@ export class MessageService {
         data: { updated_at: DateHelper.now() },
       });
 
-      const recipientSocketId = this.messageGateway.clients.get(
-        booking.coach_id,
-      );
-      if (recipientSocketId) {
-        this.messageGateway.server
-          .to(recipientSocketId)
-          .emit('message', { from: athleteId, data: message });
-      }
+      this.emitConversationMessage(body.conversation_id, message, {
+        message_type: 'CUSTOM_OFFER_ACCEPTED',
+      });
 
       await this.notificationsService.sendNotification({
         type: NotificationType.CUSTOM_OFFER_ACCEPTED,
@@ -604,12 +622,10 @@ export class MessageService {
       data: { updated_at: DateHelper.now() },
     });
 
-    const recipientSocketId = this.messageGateway.clients.get(booking.coach_id);
-    if (recipientSocketId) {
-      this.messageGateway.server
-        .to(recipientSocketId)
-        .emit('message', { from: athleteId, data: message });
-    }
+    this.emitConversationMessage(body.conversation_id, message, {
+      message_type: 'CUSTOM_OFFER_ACCEPTED',
+      payment_status: 'PENDING',
+    });
 
     await this.notificationsService.sendNotification({
       type: NotificationType.CUSTOM_OFFER_ACCEPTED,
@@ -699,12 +715,9 @@ export class MessageService {
       data: { updated_at: DateHelper.now() },
     });
 
-    const recipientSocketId = this.messageGateway.clients.get(booking.coach_id);
-    if (recipientSocketId) {
-      this.messageGateway.server
-        .to(recipientSocketId)
-        .emit('message', { from: athleteId, data: message });
-    }
+    this.emitConversationMessage(body.conversation_id, message, {
+      message_type: 'CUSTOM_OFFER_DECLINED',
+    });
 
     await this.notificationsService.sendNotification({
       type: NotificationType.CUSTOM_OFFER_DECLINED,
@@ -774,12 +787,10 @@ export class MessageService {
       data: { updated_at: DateHelper.now() },
     });
 
-    const recipientSocketId = this.messageGateway.clients.get(booking.user_id);
-    if (recipientSocketId) {
-      this.messageGateway.server
-        .to(recipientSocketId)
-        .emit('message', { from: coachId, data: message });
-    }
+    this.emitConversationMessage(conversation_id, message, {
+      message_type: 'BOOKING_UPDATED',
+      updated_fields: changedFields,
+    });
 
     return result;
   }
