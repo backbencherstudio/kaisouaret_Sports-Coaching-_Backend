@@ -255,6 +255,34 @@ export class AuthController {
     }
   }
 
+  // profile visibility setting for coaches
+  @ApiOperation({ summary: 'Set coach profile visibility' })
+  @UseGuards(JwtAuthGuard)
+  @Post('coach-profile-visibility')
+  async setCoachProfileVisibility(
+    @Req() req: Request,
+    @Body() data: { is_visible: boolean },
+  ) {
+    try {
+      const user_id = req.user.userId;
+      const is_visible = data.is_visible;
+      const response = await this.authService.setCoachProfileVisibility(
+        user_id,
+        is_visible,
+      );
+      return response;
+    } catch (error) {
+      // Re-throw HttpException to preserve status codes
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        error?.message ?? 'Failed to set coach profile visibility',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
   @ApiOperation({ summary: 'Refresh token' })
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)

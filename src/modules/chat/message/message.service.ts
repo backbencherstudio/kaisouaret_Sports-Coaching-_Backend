@@ -128,10 +128,6 @@ export class MessageService {
             format: format,
           };
 
-          // Note: Video/image metadata extraction (duration, width, height, codec, bitrate)
-          // requires ffprobe or sharp libraries which should be added for production use.
-          // The client can optionally send metadata in the request body for now.
-
           const attachment = await this.prisma.attachment.create({
             data: attachmentData,
           });
@@ -389,6 +385,7 @@ export class MessageService {
       const message = await this.prisma.message.create({
         data: {
           conversation_id: customOfferDto.conversation_id,
+          booking_id: customOfferDto.booking_id,
           sender_id: coachId,
           receiver_id: booking.user_id,
           message: `Custom offer sent: ${offerTitle} for ${memberCount} members. Total: $${totalAmount}. Due: $${dueAmount}.`,
@@ -401,14 +398,10 @@ export class MessageService {
         data: { updated_at: DateHelper.now() },
       });
 
-      this.emitConversationMessage(
-        customOfferDto.conversation_id,
-        message,
-        {
-          custom_offer: offerResult?.data,
-          message_type: 'CUSTOM_OFFER_SENT',
-        },
-      );
+      this.emitConversationMessage(customOfferDto.conversation_id, message, {
+        custom_offer: offerResult?.data,
+        message_type: 'CUSTOM_OFFER_SENT',
+      });
 
       return {
         success: true,

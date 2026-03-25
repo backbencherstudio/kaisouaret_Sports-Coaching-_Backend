@@ -546,11 +546,98 @@ const NOTIFICATION_TEMPLATES: Record<NotificationType, NotificationTemplate> =
 @Injectable()
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
+  private static readonly NOTIFICATION_SETTING_KEY = 'notifications_enabled';
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly mailService: MailService,
   ) {}
+
+  private async getOrCreateNotificationSettingId(): Promise<string> {
+    const key = NotificationsService.NOTIFICATION_SETTING_KEY;
+
+    let setting = await this.prisma.setting.findUnique({
+      where: { key },
+      select: { id: true },
+    });
+
+    if (!setting) {
+      setting = await this.prisma.setting.create({
+        data: {
+          category: 'notification',
+          label: 'Notifications Enabled',
+          description: 'Controls whether user receives notifications',
+          key,
+          default_value: 'true',
+        },
+        select: { id: true },
+      });
+    }
+
+    return setting.id;
+  }
+
+  async setNotificationEnabled(userId: string, enabled: boolean) {
+    const settingId = await this.getOrCreateNotificationSettingId();
+
+    const existing = await this.prisma.userSetting.findFirst({
+      where: {
+        user_id: userId,
+        setting_id: settingId,
+      },
+      select: { id: true },
+    });
+
+    if (existing) {
+      await this.prisma.userSetting.update({
+        where: { id: existing.id },
+        data: {
+          value: enabled ? 'true' : 'false',
+        },
+      });
+    } else {
+      await this.prisma.userSetting.create({
+        data: {
+          user_id: userId,
+          setting_id: settingId,
+          value: enabled ? 'true' : 'false',
+        },
+      });
+    }
+
+    return {
+      success: true,
+      user_id: userId,
+      notification_enabled: enabled,
+    };
+  }
+
+  async isNotificationEnabled(userId: string): Promise<boolean> {
+    const settingId = await this.getOrCreateNotificationSettingId();
+
+    const userSetting = await this.prisma.userSetting.findFirst({
+      where: {
+        user_id: userId,
+        setting_id: settingId,
+      },
+      select: { value: true },
+    });
+
+    if (!userSetting || userSetting.value === null) {
+      return true;
+    }
+
+    return userSetting.value.toLowerCase() !== 'false';
+  }
+
+  async getNotificationPreference(userId: string) {
+    const enabled = await this.isNotificationEnabled(userId);
+    return {
+      success: true,
+      user_id: userId,
+      notification_enabled: enabled,
+    };
+  }
 
   /**
    * Send a notification
@@ -566,6 +653,14 @@ export class NotificationsService {
     try {
       const { type, recipient_id, sender_id, entity_id, variables = {} } =
         options;
+
+      const isEnabled = await this.isNotificationEnabled(recipient_id);
+      if (!isEnabled) {
+        this.logger.log(
+          `Notification skipped (disabled): ${type} for ${recipient_id}`,
+        );
+        return null;
+      }
 
       // Get template
       const template = NOTIFICATION_TEMPLATES[type];
@@ -792,4 +887,10 @@ export class NotificationsService {
       data: { deleted_at: new Date() },
     });
   }
+
+
+  
+
+
+
 }

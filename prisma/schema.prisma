@@ -522,6 +522,7 @@ model Booking {
   longitude         Decimal?
 
   customOffers CustomOffer[]
+  messages     Message[]
 
   @@map("bookings")
 }
@@ -587,6 +588,9 @@ model Message {
   deleted_at DateTime?
 
   status MessageStatus? @default(PENDING)
+
+  booking_id String?
+  booking    Booking? @relation(fields: [booking_id], references: [id], onDelete: Cascade)
 
   sender_id String?
   sender    User?   @relation("sender", fields: [sender_id], references: [id])

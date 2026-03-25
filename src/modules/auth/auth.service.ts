@@ -47,6 +47,7 @@ export class AuthService {
         },
         select: {
           id: true,
+          status: true,
           name: true,
           avatar: true,
           email: true,
@@ -618,6 +619,44 @@ export class AuthService {
       if (error instanceof NotFoundException) throw error;
       throw new BadRequestException(
         error?.message ?? 'Failed to update profile',
+      );
+    }
+  }
+
+  async setCoachProfileVisibility(userId: string, isVisible: boolean) {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+      });
+
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+
+      if (user.type !== 'coach') {
+        throw new BadRequestException(
+          'Only coaches can have profile visibility settings',
+        );
+      }
+
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { status: isVisible ? 1 : 0 },
+      });
+
+      return {
+        success: true,
+        message: 'Coach profile visibility updated successfully',
+      };
+    } catch (error) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException
+      ) {
+        throw error;
+      }
+      throw new BadRequestException(
+        error?.message ?? 'Failed to update coach profile visibility',
       );
     }
   }
