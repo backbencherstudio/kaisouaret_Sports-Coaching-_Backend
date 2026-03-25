@@ -8,6 +8,7 @@ import {
   Req,
   BadRequestException,
   Post,
+  Body,
 } from '@nestjs/common';
 import { NotificationsService } from './notifications.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -17,6 +18,29 @@ import { GetUser } from '../auth/decorators/get-user.decorator';
 @UseGuards(JwtAuthGuard)
 export class NotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}
+
+  @Get('preference')
+  async getNotificationPreference(@GetUser('userId') userId: string) {
+    const preference =
+      await this.notificationsService.getNotificationPreference(userId);
+
+    return preference;
+  }
+
+  @Post('preference')
+  async setNotificationPreference(
+    @GetUser('userId') userId: string,
+    @Body() body: { enabled: boolean },
+  ) {
+    if (typeof body?.enabled !== 'boolean') {
+      throw new BadRequestException('enabled(boolean) is required');
+    }
+
+    return await this.notificationsService.setNotificationEnabled(
+      userId,
+      body.enabled,
+    );
+  }
 
   /**
    * Get unread notifications

@@ -1,6 +1,7 @@
 import {
   WebSocketGateway,
   SubscribeMessage,
+  ConnectedSocket,
   MessageBody,
   OnGatewayInit,
   OnGatewayConnection,
@@ -38,6 +39,14 @@ export class NotificationGateway
 
   constructor(private readonly notificationService: NotificationService) {}
 
+  private getUserIdFromSocket(client: Socket): string | undefined {
+    const userId = client.handshake.query.userId as string | undefined;
+    if (!userId || typeof userId !== 'string') {
+      return undefined;
+    }
+    return userId;
+  }
+
   onModuleInit() {
     this.redisPubClient = new Redis({
       host: appConfig().redis.host,
@@ -52,8 +61,25 @@ export class NotificationGateway
     });
 
     this.redisSubClient.subscribe('notification', (err, message: string) => {
-      const data = JSON.parse(message);
-      this.server.emit('receiveNotification', data);
+      if (err) {
+        console.error('Redis subscribe error:', err);
+        return;
+      }
+
+      try {
+        const data = JSON.parse(message);
+        const targetUserId = data?.userId as string | undefined;
+        if (!targetUserId) {
+          return;
+        }
+
+        const targetSocketId = this.clients.get(targetUserId);
+        if (targetSocketId) {
+          this.server.to(targetSocketId).emit('receiveNotification', data);
+        }
+      } catch (parseError) {
+        console.error('Failed to parse redis notification payload:', parseError);
+      }
     });
   }
 
@@ -96,12 +122,100 @@ export class NotificationGateway
     // Emit notification to specific client
     const targetSocketId = this.clients.get(data.userId);
     if (targetSocketId) {
+      const isEnabled = await this.notificationService.isNotificationEnabled(
+        data.userId,
+      );
+
+      if (!isEnabled) {
+        return {
+          success: true,
+          skipped: true,
+          reason: 'USER_NOTIFICATION_DISABLED',
+          user_id: data.userId,
+        };
+      }
+
       await this.redisPubClient.publish('notification', JSON.stringify(data));
 
       // console.log(`Notification sent to user ${data.userId}`);
+      return {
+        success: true,
+        skipped: false,
+        user_id: data.userId,
+      };
     } else {
       // console.log(`User ${data.userId} not connected`);
+      return {
+        success: true,
+        skipped: true,
+        reason: 'USER_OFFLINE',
+        user_id: data.userId,
+      };
     }
+  }
+
+  @SubscribeMessage('toggleNotification')
+  async toggleNotification(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { userId: string; enabled: boolean },
+  ) {
+    const socketUserId = this.getUserIdFromSocket(client);
+    if (!socketUserId) {
+      return {
+        success: false,
+        message: 'Invalid socket user',
+      };
+    }
+
+    if (typeof body.enabled !== 'boolean') {
+      return {
+        success: false,
+        message: 'enabled(boolean) is required',
+      };
+    }
+
+    if (body?.userId && body.userId !== socketUserId) {
+      return {
+        success: false,
+        message: 'Unauthorized userId in payload',
+      };
+    }
+
+    const result = await this.notificationService.setNotificationEnabled(
+      socketUserId,
+      body.enabled,
+    );
+
+    client.emit('notificationPreferenceUpdated', result);
+    return result;
+  }
+
+  @SubscribeMessage('getNotificationPreference')
+  async getNotificationPreference(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { userId: string },
+  ) {
+    const socketUserId = this.getUserIdFromSocket(client);
+    if (!socketUserId) {
+      return {
+        success: false,
+        message: 'Invalid socket user',
+      };
+    }
+
+    if (body?.userId && body.userId !== socketUserId) {
+      return {
+        success: false,
+        message: 'Unauthorized userId in payload',
+      };
+    }
+
+    const result = await this.notificationService.getNotificationPreference(
+      socketUserId,
+    );
+
+    client.emit('notificationPreference', result);
+    return result;
   }
 
   @SubscribeMessage('createNotification')
