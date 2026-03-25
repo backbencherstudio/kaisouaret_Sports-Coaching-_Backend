@@ -639,8 +639,8 @@ export class AuthService {
         );
       }
 
-      await this.prisma.user.update({
-        where: { id: userId },
+      await this.prisma.coachProfile.update({
+        where: { user_id: userId },
         data: { status: isVisible ? 1 : 0 },
       });
 
