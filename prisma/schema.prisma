@@ -444,12 +444,12 @@ model PaymentTransaction {
   transfer_status    String?
 
   // Stripe/Payment gateway fields
-  payment_gateway    String?
-  payment_intent_id  String?
-  client_secret      String?
+  payment_gateway   String?
+  payment_intent_id String?
+  client_secret     String?
 
-  bookings            Booking[]            @relation("BookingPaymentTransaction")
-  bookingsCustomOffer Booking[]            @relation("BookingCustomOfferPaymentTransaction")
+  bookings            Booking[]          @relation("BookingPaymentTransaction")
+  bookingsCustomOffer Booking[]          @relation("BookingCustomOfferPaymentTransaction")
   customOffers        CustomOffer[]
   marketplaceOrders   MarketplaceOrder[]
 
@@ -885,23 +885,23 @@ model Video {
 }
 
 model MarketplaceProduct {
-  id                String             @id @default(cuid())
-  created_at        DateTime           @default(now())
-  updated_at        DateTime           @updatedAt
-  deleted_at        DateTime?
-  status            ProductStatus?     @default(ACTIVE)
-  name              String
-  category          String?
-  price             Decimal            @default(0)
-  stock_quantity    Int                @default(0)
-  sold_quantity     Int                @default(0)
-  brand_name        String?
-  discount          Decimal?           @default(0)
-  description       String?
-  is_active         Boolean            @default(true)
-  images            String[] // allow multiple images for a product
-  addToCarts        AddToCart[]
-  order_items       MarketplaceOrderItem[]
+  id             String                 @id @default(cuid())
+  created_at     DateTime               @default(now())
+  updated_at     DateTime               @updatedAt
+  deleted_at     DateTime?
+  status         ProductStatus?         @default(ACTIVE)
+  name           String
+  category       String?
+  price          Decimal                @default(0)
+  stock_quantity Int                    @default(0)
+  sold_quantity  Int                    @default(0)
+  brand_name     String?
+  discount       Decimal?               @default(0)
+  description    String?
+  is_active      Boolean                @default(true)
+  images         String[] // allow multiple images for a product
+  addToCarts     AddToCart[]
+  order_items    MarketplaceOrderItem[]
 
   @@map("marketplace_products")
 }
@@ -957,18 +957,18 @@ model MarketplaceOrder {
 
   // Payment information
   total_amount           Decimal
-  currency               String  @default("usd")
+  currency               String              @default("usd")
   payment_transaction_id String?
   payment_transaction    PaymentTransaction? @relation(fields: [payment_transaction_id], references: [id])
 
   // Shipping address
-  shipping_address   String?
-  shipping_city      String?
-  shipping_state     String?
-  shipping_country   String?
-  shipping_zip_code  String?
-  shipping_phone     String?
-  email              String?
+  shipping_address  String?
+  shipping_city     String?
+  shipping_state    String?
+  shipping_country  String?
+  shipping_zip_code String?
+  shipping_phone    String?
+  email             String?
 
   // Tracking
   tracking_number String?

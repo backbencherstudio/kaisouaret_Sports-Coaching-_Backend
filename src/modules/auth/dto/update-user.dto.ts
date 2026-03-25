@@ -89,8 +89,8 @@ export class UpdateUserDto extends PartialType(CreateUserDto) {
 
   @IsOptional()
   @ApiProperty({
-    description: 'Date of birth',
-    example: '14/11/2001',
+    description: 'Date of birth ',
+    example: '04/11/2001',
   })
   date_of_birth?: string;
 
@@ -172,12 +172,11 @@ export class UpdateUserDto extends PartialType(CreateUserDto) {
   @ApiProperty({ required: false })
   session_duration_minutes?: string;
 
-
   @IsOptional()
   @ApiProperty({
-    description: 'Languages spoken by the user (array or comma separated string)',
-    example: 'English,Spanish', 
+    description:
+      'Languages spoken by the user (array or comma separated string)',
+    example: 'English,Spanish',
   })
   languages?: string[];
-
 }

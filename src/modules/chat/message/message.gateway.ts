@@ -19,6 +19,8 @@ import { MessageService } from './message.service';
   cors: {
     origin: '*',
   },
+  pingInterval: 25000,
+  pingTimeout: 60000,
 })
 export class MessageGateway
   implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
