@@ -30,12 +30,15 @@ export class VideoCommunityController {
   })
   @Post('post')
   @UseInterceptors(
-    FileFieldsInterceptor([
-      { name: 'video', maxCount: 1 },
-      { name: 'thumbnail', maxCount: 1 },
-    ], {
-      storage: memoryStorage(),
-    }),
+    FileFieldsInterceptor(
+      [
+        { name: 'video', maxCount: 1 },
+        { name: 'thumbnail', maxCount: 1 },
+      ],
+      {
+        storage: memoryStorage(),
+      },
+    ),
   )
   async communityPost(
     @GetUser('userId') coachId: string,
@@ -82,5 +85,14 @@ export class VideoCommunityController {
   @Get(':id')
   async getOne(@GetUser('userId') userId: string, @Param('id') id: string) {
     return this.videoCommunityService.getVideo(userId, id);
+  }
+
+  @ApiOperation({ summary: 'Search or filter videos' })
+  @Get('search/:query')
+  async search(
+    @GetUser('userId') userId: string,
+    @Param('query') query: string,
+  ) {
+    return this.videoCommunityService.searchVideos(userId, query);
   }
 }

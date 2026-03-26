@@ -17,9 +17,8 @@ import { StringHelper } from 'src/common/helper/string.helper';
 
 type ListOptions = { page?: number; perPage?: number };
 
-const ffmpeg =
-  ((ffmpegModule as unknown as { default?: typeof ffmpegModule }).default ||
-    ffmpegModule) as typeof ffmpegModule;
+const ffmpeg = ((ffmpegModule as unknown as { default?: typeof ffmpegModule })
+  .default || ffmpegModule) as typeof ffmpegModule;
 
 const ffprobePath =
   (ffprobeStatic as { path?: string }).path ||
@@ -33,7 +32,9 @@ if (ffprobePath) {
 export class VideoCommunityService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private async extractVideoDuration(video: Express.Multer.File): Promise<number> {
+  private async extractVideoDuration(
+    video: Express.Multer.File,
+  ): Promise<number> {
     if (!video?.buffer?.length) {
       throw new BadRequestException('Uploaded video file is empty');
     }
@@ -320,6 +321,54 @@ export class VideoCommunityService {
       success: true,
       message: 'Video details retrieved successfully',
       data: video,
+    };
+  }
+
+  async searchVideos(userId: string, query: string) {
+    if (!userId) throw new BadRequestException('User ID is required');
+    if (!query) throw new BadRequestException('Search query is required');
+
+    const isPremium = await this.hasActiveAthleteSubscription(userId);
+
+    const where: any = {
+      OR: [
+        { title: { contains: query, mode: 'insensitive' } },
+        { coach: { name: { contains: query, mode: 'insensitive' } } },
+        { description: { contains: query, mode: 'insensitive' } },
+      ],
+    };
+
+    if (!isPremium) {
+      where.is_premium = false;
+    }
+
+    const videos = await this.prisma.video.findMany({
+      where,
+      orderBy: { created_at: 'desc' },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        video_url: true,
+        thumbnail: true,
+        duration: true,
+        view_count: true,
+        is_premium: true,
+        created_at: true,
+        coach: {
+          select: {
+            id: true,
+            name: true,
+            avatar: true,
+          },
+        },
+      },
+    });
+
+    return {
+      success: true,
+      message: 'Search completed successfully',
+      data: videos,
     };
   }
 }

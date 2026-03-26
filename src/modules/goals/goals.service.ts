@@ -503,6 +503,13 @@ export class GoalsService {
 
       this.logger.log(`Fetched ${goals.length} goals for user ${userId}`);
 
+      // make an [] of all coach notes from all goals and make it one [] and sort by created_at desc and take top 5
+      const allCoachNotes = mapped.flatMap((m) => m.coach_notes);
+      allCoachNotes.sort(
+        (a, b) => b.created_at.getTime() - a.created_at.getTime(),
+      );
+      const topCoachNotes = allCoachNotes.slice(0, 10);
+
       return {
         success: true,
         message: 'Goals fetched successfully',
@@ -510,6 +517,7 @@ export class GoalsService {
           overall_percent,
           goals: mapped,
           total: goals.length,
+          topCoachNotes,
         },
       };
     } catch (error) {
