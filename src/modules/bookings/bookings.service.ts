@@ -1204,30 +1204,38 @@ export class BookingsService {
     }
   }
 
-  async getAthleteBookings(athleteId: string) {
+  async getAthleteBookings(
+    athleteId: string,
+    page: number = 1,
+    limit: number = 10,
+  ) {
     if (!athleteId) throw new BadRequestException('Athlete ID is required');
+
+    // Validate pagination parameters
+    const pageNum = Math.max(1, Number(page) || 1);
+    const limitNum = Math.min(100, Math.max(1, Number(limit) || 10));
+    const skip = (pageNum - 1) * limitNum;
+
+    // Get total count
+    const totalCount = await this.prisma.booking.count({
+      where: { user_id: athleteId },
+    });
 
     const bookings = await this.prisma.booking.findMany({
       where: { user_id: athleteId },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            status: true,
-            email: true,
-            phone_number: true,
-            avatar: true,
-            bio: true,
-            objectives: true,
-            goals: true,
-            sports: true,
-            age: true,
-            location: true,
-            type: true,
-          },
-        },
-
+      select: {
+        id: true,
+        coach_id: true,
+        appointment_date: true,
+        status: true,
+        title: true,
+        session_time: true,
+        session_time_display: true,
+        duration_minutes: true,
+        number_of_members: true,
+        session_price: true,
+        total_amount: true,
+        currency: true,
         coach_profile: {
           select: {
             id: true,
@@ -1245,13 +1253,75 @@ export class BookingsService {
           },
         },
       },
+      orderBy: { appointment_date: 'desc' },
+      skip,
+      take: limitNum,
     });
 
+    const coachIds = Array.from(new Set(bookings.map((b) => b.coach_id)));
+    const coachUsers =
+      coachIds.length > 0
+        ? await this.prisma.user.findMany({
+            where: { id: { in: coachIds } },
+            select: {
+              id: true,
+              name: true,
+              avatar: true,
+              type: true,
+            },
+          })
+        : [];
+
+    const coachMap: Record<string, any> = {};
+    for (const coach of coachUsers) coachMap[coach.id] = coach;
+
+    const items = bookings.map((booking) => ({
+      id: booking.id,
+      appointment_date: booking.appointment_date,
+      status: booking.status,
+      title: booking.title,
+      session_time: booking.session_time,
+      session_time_display: booking.session_time_display,
+      duration_minutes: booking.duration_minutes,
+      number_of_members: booking.number_of_members,
+      session_price: booking.session_price,
+      total_amount: booking.total_amount,
+      currency: booking.currency,
+      coach: {
+        user: coachMap[booking.coach_id] || null,
+        profile: booking.coach_profile,
+      },
+    }));
+
     if (!bookings || bookings.length === 0) {
-      return { items: [], message: 'No bookings found for this athlete' };
+      return {
+        items: [],
+        pagination: {
+          total: totalCount,
+          page: pageNum,
+          limit: limitNum,
+          totalPages: Math.ceil(totalCount / limitNum),
+          hasNextPage: pageNum < Math.ceil(totalCount / limitNum),
+          hasPrevPage: pageNum > 1,
+        },
+        message:
+          totalCount === 0
+            ? 'No bookings found for this athlete'
+            : 'No more bookings',
+      };
     }
 
-    return { items: bookings, total: bookings.length };
+    return {
+      items,
+      pagination: {
+        total: totalCount,
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil(totalCount / limitNum),
+        hasNextPage: pageNum < Math.ceil(totalCount / limitNum),
+        hasPrevPage: pageNum > 1,
+      },
+    };
   }
 
   async getBookingToken(athleteId: string, bookingId: string) {
@@ -1319,24 +1389,19 @@ export class BookingsService {
         user_id: athleteId,
         appointment_date: { gte: start, lt: end },
       },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            status: true,
-            email: true,
-            phone_number: true,
-            avatar: true,
-            bio: true,
-            objectives: true,
-            goals: true,
-            sports: true,
-            age: true,
-            location: true,
-            type: true,
-          },
-        },
+      select: {
+        id: true,
+        coach_id: true,
+        appointment_date: true,
+        status: true,
+        title: true,
+        session_time: true,
+        session_time_display: true,
+        duration_minutes: true,
+        number_of_members: true,
+        session_price: true,
+        total_amount: true,
+        currency: true,
         coach_profile: {
           select: {
             id: true,
@@ -1354,7 +1419,43 @@ export class BookingsService {
           },
         },
       },
+      orderBy: { appointment_date: 'asc' },
     });
+
+    const coachIds = Array.from(new Set(bookings.map((b) => b.coach_id)));
+    const coachUsers =
+      coachIds.length > 0
+        ? await this.prisma.user.findMany({
+            where: { id: { in: coachIds } },
+            select: {
+              id: true,
+              name: true,
+              avatar: true,
+              type: true,
+            },
+          })
+        : [];
+
+    const coachMap: Record<string, any> = {};
+    for (const coach of coachUsers) coachMap[coach.id] = coach;
+
+    const items = bookings.map((booking) => ({
+      id: booking.id,
+      appointment_date: booking.appointment_date,
+      status: booking.status,
+      title: booking.title,
+      session_time: booking.session_time,
+      session_time_display: booking.session_time_display,
+      duration_minutes: booking.duration_minutes,
+      number_of_members: booking.number_of_members,
+      session_price: booking.session_price,
+      total_amount: booking.total_amount,
+      currency: booking.currency,
+      coach: {
+        user: coachMap[booking.coach_id] || null,
+        profile: booking.coach_profile,
+      },
+    }));
 
     if (!bookings || bookings.length === 0) {
       return {
@@ -1363,7 +1464,7 @@ export class BookingsService {
       };
     }
 
-    return { items: bookings, total: bookings.length };
+    return { items, total: items.length };
   }
 
   async getBookingById(athleteId: string, bookingId: string) {
@@ -1375,24 +1476,38 @@ export class BookingsService {
         id: bookingId,
         user_id: athleteId,
       },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            status: true,
-            email: true,
-            phone_number: true,
-            avatar: true,
-            bio: true,
-            objectives: true,
-            goals: true,
-            sports: true,
-            age: true,
-            location: true,
-            type: true,
-          },
-        },
+      select: {
+        id: true,
+        created_at: true,
+        updated_at: true,
+        deleted_at: true,
+        title: true,
+        coach_id: true,
+        user_id: true,
+        coach_profile_id: true,
+        appointment_date: true,
+        session_time: true,
+        session_time_display: true,
+        duration_minutes: true,
+        session_price: true,
+        location: true,
+        session_package_id: true,
+        description: true,
+        number_of_members: true,
+        number_of_sessions: true,
+        days_validity: true,
+        total_completed_session: true,
+        total_amount: true,
+        currency: true,
+        payment_transaction_id: true,
+        custom_offer_payment_transaction_id: true,
+        status: true,
+        notes: true,
+        rating: true,
+        feedback: true,
+        google_map_link: true,
+        latitude: true,
+        longitude: true,
       },
     });
     if (!booking) throw new NotFoundException('Booking not found');
@@ -1642,6 +1757,7 @@ export class BookingsService {
             id: true,
             name: true,
             avatar: true,
+            type: true,
           },
         },
       },
@@ -3941,7 +4057,7 @@ export class BookingsService {
             session_price: true,
             is_verified: true,
             rating_count: true,
-            avg_rating: true,            
+            avg_rating: true,
           },
         },
       },
@@ -4008,7 +4124,6 @@ export class BookingsService {
             is_verified: true,
             rating_count: true,
             avg_rating: true,
-            
           },
         },
       },

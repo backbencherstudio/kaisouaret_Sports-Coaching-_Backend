@@ -105,9 +105,17 @@ export class BookingsController {
 
   @ApiOperation({ summary: 'get all bookings for especific athlete' })
   @Get('athlete')
-  async getAthleteBookings(@GetUser('userId') athleteId: string) {
+  async getAthleteBookings(
+    @GetUser('userId') athleteId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
     console.log('hit in all booking');
-    return this.bookingsService.getAthleteBookings(athleteId);
+    return this.bookingsService.getAthleteBookings(
+      athleteId,
+      Number(page) || 1,
+      Number(limit) || 10,
+    );
   }
 
   @ApiOperation({ summary: 'get all bookings for especific athlete by date' })
