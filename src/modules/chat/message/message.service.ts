@@ -75,6 +75,71 @@ export class MessageService {
     return fallbackKey;
   }
 
+  private buildAttachmentFileUrl(storedFileRaw: string): string {
+    const storedFile = String(storedFileRaw || '');
+    const isAbsoluteUrl = /^https?:\/\//i.test(storedFile);
+    if (isAbsoluteUrl) {
+      return storedFile;
+    }
+
+    const attachmentPrefix = appConfig().storageUrl.attachment;
+    const normalizedKey =
+      storedFile.startsWith(`${attachmentPrefix}/`) ||
+      storedFile === attachmentPrefix
+        ? storedFile
+        : `${attachmentPrefix}/${storedFile}`;
+
+    return SazedStorage.url(normalizedKey);
+  }
+
+  async getRealtimeMessagePayload(messageId: string) {
+    const message = await this.prisma.message.findUnique({
+      where: { id: messageId },
+      select: {
+        id: true,
+        sender_id: true,
+        receiver_id: true,
+        conversation_id: true,
+        message: true,
+        attachment_id: true,
+        created_at: true,
+        status: true,
+        attachment: {
+          select: {
+            id: true,
+            name: true,
+            type: true,
+            size: true,
+            file: true,
+          },
+        },
+      },
+    });
+
+    if (!message) {
+      return null;
+    }
+
+    const attachment = message.attachment
+      ? {
+          ...message.attachment,
+          file_url: this.buildAttachmentFileUrl(String(message.attachment.file || '')),
+        }
+      : null;
+
+    return {
+      message_id: message.id,
+      sender_id: message.sender_id,
+      receiver_id: message.receiver_id,
+      conversation_id: message.conversation_id,
+      message: message.message,
+      attachment_id: message.attachment_id || null,
+      attachment,
+      created_at: message.created_at,
+      status: message.status,
+    };
+  }
+
   private emitConversationMessage(
     conversationId: string,
     message: {
@@ -118,6 +183,18 @@ export class MessageService {
         data.message = createMessageDto.message;
       }
 
+      // Reuse existing uploaded attachment if provided.
+      if (createMessageDto.attachment_id) {
+        const existingAttachment = await this.prisma.attachment.findUnique({
+          where: { id: createMessageDto.attachment_id },
+          select: { id: true },
+        });
+        if (!existingAttachment) {
+          throw new NotFoundException('Attachment not found');
+        }
+        data.attachment_id = existingAttachment.id;
+      }
+
       // check if conversation exists
       const conversation = await this.prisma.conversation.findFirst({
         where: {
@@ -141,7 +218,7 @@ export class MessageService {
       }
 
       // Handle file upload
-      if (createMessageDto.file) {
+      if (!data.attachment_id && createMessageDto.file) {
         try {
           const fileName = `message_${Date.now()}_${createMessageDto.file.originalname}`;
           const filePath = `${appConfig().storageUrl.attachment}/${fileName}`;
@@ -183,6 +260,26 @@ export class MessageService {
           console.error('Error uploading file:', error);
           // Continue with message creation even if file upload fails
         }
+      }
+
+      // Handle direct attachment metadata for socket/direct sends.
+      if (
+        !data.attachment_id &&
+        createMessageDto.attachment &&
+        createMessageDto.attachment.file
+      ) {
+        const a = createMessageDto.attachment;
+        const attachment = await this.prisma.attachment.create({
+          data: {
+            name: a.name,
+            type: a.type,
+            size: a.size,
+            file: a.file,
+            file_alt: a.file_alt || a.name,
+            format: a.format,
+          },
+        });
+        data.attachment_id = attachment.id;
       }
 
       const message = await this.prisma.message.create({
@@ -302,18 +399,9 @@ export class MessageService {
       // add attachment url
       for (const message of messages) {
         if (message.attachment) {
-          const storedFile = String(message.attachment.file || '');
-          const isAbsoluteUrl = /^https?:\/\//i.test(storedFile);
-          const attachmentPrefix = appConfig().storageUrl.attachment;
-          const normalizedKey =
-            storedFile.startsWith(`${attachmentPrefix}/`) ||
-            storedFile === attachmentPrefix
-              ? storedFile
-              : `${attachmentPrefix}/${storedFile}`;
-
-          message.attachment['file_url'] = isAbsoluteUrl
-            ? storedFile
-            : SazedStorage.url(normalizedKey);
+          message.attachment['file_url'] = this.buildAttachmentFileUrl(
+            String(message.attachment.file || ''),
+          );
         }
       }
 
