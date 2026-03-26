@@ -483,6 +483,7 @@ export class GoalsService {
           frequency_per_week: g.frequency_per_week,
           motivation: g.motivation,
           latest_progress: latest,
+          coach_id: g.coach_id,
           coach_notes: g.coach_notes ?? [],
           progress_label,
           created_at: g.created_at,

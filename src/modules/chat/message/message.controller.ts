@@ -2,6 +2,7 @@ import {
   Controller,
   Post,
   Body,
+  UploadedFile,
   Req,
   UseGuards,
   Get,
@@ -37,7 +38,12 @@ export class MessageController {
   async create(
     @Req() req: Request,
     @Body() createMessageDto: CreateMessageDto,
+    @UploadedFile() file?: Express.Multer.File,
   ) {
+    if (file) {
+      createMessageDto.file = file;
+    }
+
     const user_id = req.user.userId;
     const message = await this.messageService.create(user_id, createMessageDto);
     if (message.success) {
