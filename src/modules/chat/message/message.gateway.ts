@@ -136,6 +136,7 @@ export class MessageGateway
       conversation_id: string; 
       message: string; 
       message_id?: string;
+      attachment_id?: string;
       attachment?: any;
     },
   ) {
@@ -156,6 +157,8 @@ export class MessageGateway
       receiver_id: body.receiver_id,
       conversation_id: body.conversation_id,
       message: body.message,
+      attachment_id: body.attachment_id,
+      attachment: body.attachment,
     });
 
     if (!persisted?.success || !persisted?.data) {
@@ -168,18 +171,26 @@ export class MessageGateway
       };
     }
 
-    // Broadcast persisted payload to the entire conversation room.
-    this.server.to(body.conversation_id).emit('message', {
-      message_id: persisted.data.id,
-      sender_id: persisted.data.sender_id,
-      receiver_id: persisted.data.receiver_id,
-      conversation_id: persisted.data.conversation_id,
-      message: persisted.data.message,
-      attachment_id: persisted.data.attachment_id || null,
-      attachment: body.attachment || null,
-      created_at: persisted.data.created_at,
-      status: persisted.data.status,
-    });
+    // Broadcast persisted payload (including normalized attachment url) to the room.
+    const realtimePayload = await this.messageService.getRealtimeMessagePayload(
+      persisted.data.id,
+    );
+
+    this.server
+      .to(body.conversation_id)
+      .emit(
+        'message',
+        realtimePayload || {
+          message_id: persisted.data.id,
+          sender_id: persisted.data.sender_id,
+          receiver_id: persisted.data.receiver_id,
+          conversation_id: persisted.data.conversation_id,
+          message: persisted.data.message,
+          attachment_id: persisted.data.attachment_id || null,
+          created_at: persisted.data.created_at,
+          status: persisted.data.status,
+        },
+      );
 
     return {
       success: true,
