@@ -1292,27 +1292,41 @@ export class BookingsService {
     athleteId: string,
     page: number = 1,
     limit: number = 10,
+    status?: string,
   ) {
     if (!athleteId) throw new BadRequestException('Athlete ID is required');
+
+    const normalizedStatus = status?.trim().toUpperCase();
+    const allowedStatuses = [
+      'PENDING',
+      'CONFIRMED',
+      'CANCELLED',
+      'COMPLETED',
+    ];
+
+    if (normalizedStatus && !allowedStatuses.includes(normalizedStatus)) {
+      throw new BadRequestException(
+        `Invalid status. Allowed values: ${allowedStatuses.join(', ')}`,
+      );
+    }
 
     // Validate pagination parameters
     const pageNum = Math.max(1, Number(page) || 1);
     const limitNum = Math.min(100, Math.max(1, Number(limit) || 10));
     const skip = (pageNum - 1) * limitNum;
 
+    const bookingWhere: any = {
+      user_id: athleteId,
+      ...(normalizedStatus ? { status: normalizedStatus } : {}),
+    };
+
     // Get total count
     const totalCount = await this.prisma.booking.count({
-      where: {
-        user_id: athleteId,
-        status: 'CONFIRMED',
-      },
+      where: bookingWhere,
     });
 
     const bookings = await this.prisma.booking.findMany({
-      where: {
-        user_id: athleteId,
-        status: 'CONFIRMED',
-      },
+      where: bookingWhere,
       select: {
         id: true,
         coach_id: true,
@@ -1440,8 +1454,26 @@ export class BookingsService {
     };
   }
 
-  async getAthleteBookingsByDate(athleteId: string, date: string) {
+  async getAthleteBookingsByDate(
+    athleteId: string,
+    date: string,
+    status?: string,
+  ) {
     if (!athleteId) throw new BadRequestException('Athlete ID is required');
+
+    const normalizedStatus = status?.trim().toUpperCase();
+    const allowedStatuses = [
+      'PENDING',
+      'CONFIRMED',
+      'CANCELLED',
+      'COMPLETED',
+    ];
+
+    if (normalizedStatus && !allowedStatuses.includes(normalizedStatus)) {
+      throw new BadRequestException(
+        `Invalid status. Allowed values: ${allowedStatuses.join(', ')}`,
+      );
+    }
 
     // parse incoming date (accept flexible formats) and query by day range
     const normalizeDateString = (s: string) => {
@@ -1481,7 +1513,7 @@ export class BookingsService {
     const bookings = await this.prisma.booking.findMany({
       where: {
         user_id: athleteId,
-        status: 'CONFIRMED',
+        ...(normalizedStatus ? { status: normalizedStatus as any } : {}),
         appointment_date: { gte: start, lt: end },
       },
       select: {
@@ -1808,8 +1840,23 @@ export class BookingsService {
     coachId: string,
     page: number = 1,
     limit: number = 10,
+    status?: string,
   ) {
     if (!coachId) throw new BadRequestException('Coach ID is required');
+
+    const normalizedStatus = status?.trim().toUpperCase();
+    const allowedStatuses = [
+      'PENDING',
+      'CONFIRMED',
+      'CANCELLED',
+      'COMPLETED',
+    ];
+
+    if (normalizedStatus && !allowedStatuses.includes(normalizedStatus)) {
+      throw new BadRequestException(
+        `Invalid status. Allowed values: ${allowedStatuses.join(', ')}`,
+      );
+    }
 
     // Validate pagination parameters
     const pageNum = Math.max(1, Number(page) || 1);
@@ -1827,20 +1874,20 @@ export class BookingsService {
       throw new NotFoundException('Coach profile not found');
     }
 
+    const bookingWhere: any = {
+      coach_id: coachId,
+      coach_profile_id: coachProfile.id,
+      ...(normalizedStatus ? { status: normalizedStatus } : {}),
+    };
+
     // Get total count
     const totalCount = await this.prisma.booking.count({
-      where: {
-        coach_id: coachId,
-        coach_profile_id: coachProfile.id,
-      },
+      where: bookingWhere,
     });
 
     // Get paginated bookings
     const bookings = await this.prisma.booking.findMany({
-      where: {
-        coach_id: coachId,
-        coach_profile_id: coachProfile.id,
-      },
+      where: bookingWhere,
       select: {
         id: true,
         appointment_date: true,
@@ -1898,8 +1945,26 @@ export class BookingsService {
     };
   }
 
-  async getCoachBookingsByDate(coachId: string, date: string) {
+  async getCoachBookingsByDate(
+    coachId: string,
+    date: string,
+    status?: string,
+  ) {
     if (!coachId) throw new BadRequestException('Coach ID is required');
+
+    const normalizedStatus = status?.trim().toUpperCase();
+    const allowedStatuses = [
+      'PENDING',
+      'CONFIRMED',
+      'CANCELLED',
+      'COMPLETED',
+    ];
+
+    if (normalizedStatus && !allowedStatuses.includes(normalizedStatus)) {
+      throw new BadRequestException(
+        `Invalid status. Allowed values: ${allowedStatuses.join(', ')}`,
+      );
+    }
 
     const coachProfile = await this.prisma.coachProfile.findUnique({
       where: { user_id: coachId },
@@ -1946,6 +2011,7 @@ export class BookingsService {
       where: {
         coach_id: coachId,
         coach_profile_id: coachProfile.id,
+        ...(normalizedStatus ? { status: normalizedStatus as any } : {}),
         appointment_date: { gte: start, lt: end },
       },
       select: {
