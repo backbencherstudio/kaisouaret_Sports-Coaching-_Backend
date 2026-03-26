@@ -976,10 +976,14 @@ export class BookingsService {
           appointment_date: appointmentDate,
         },
       });
-      if (existingBooking)
+      if (existingBooking && existingBooking.status !== 'PENDING') {
         throw new ConflictException(
-          'Booking already exists for this coach and date',
+          `Booking already exists for this coach and date with status ${existingBooking.status}`,
         );
+      }
+
+      const isUpdatingPending =
+        !!existingBooking && existingBooking.status === 'PENDING';
 
       // If a sessionPackageId is provided, validate it belongs to this coach
       let sessionPackage = null;
@@ -1018,8 +1022,24 @@ export class BookingsService {
       };
 
       if (!sessionPackage) {
-        // create booking record (pending payment)
-        const booking = await this.prisma.booking.create({ data: baseData });
+        // create or update booking record (pending payment)
+        const booking = isUpdatingPending
+          ? await this.prisma.booking.update({
+              where: { id: existingBooking!.id },
+              data: {
+                ...baseData,
+                status: 'PENDING',
+                // Reset package-related fields when switching to single session.
+                sessionPackage: { disconnect: true },
+                title: null,
+                description: null,
+                number_of_sessions: null,
+                days_validity: null,
+                total_completed_session: 0,
+                total_amount: null,
+              },
+            })
+          : await this.prisma.booking.create({ data: baseData });
 
         // ensure stripe customer
         let customerId = getAthlete.billing_id;
@@ -1040,6 +1060,32 @@ export class BookingsService {
           } catch (err) {
             // ignore customer creation failure; Stripe may allow creating PaymentIntent without customer
             console.error('Failed to create stripe customer', err);
+          }
+        }
+
+        // If this is a pending booking update, best-effort cancel previous uncaptured payment intent.
+        if (isUpdatingPending && booking.payment_transaction_id) {
+          const previousTx = await this.prisma.paymentTransaction.findUnique({
+            where: { id: booking.payment_transaction_id },
+          });
+          if (
+            previousTx?.reference_number &&
+            ['pending', 'authorized', 'confirmed'].includes(
+              String(previousTx.status || '').toLowerCase(),
+            )
+          ) {
+            try {
+              await StripePayment.cancelPaymentIntent(previousTx.reference_number);
+              await this.prisma.paymentTransaction.update({
+                where: { id: previousTx.id },
+                data: { status: 'cancelled' },
+              });
+            } catch (err) {
+              this.logger.warn(
+                `Failed to cancel previous payment intent for booking ${booking.id}`,
+                err as any,
+              );
+            }
           }
         }
 
@@ -1078,10 +1124,10 @@ export class BookingsService {
           data: { payment_transaction_id: tx.id },
         });
 
-        // notify coach about new booking request
+        // notify coach about new/updated booking request
         await this.createNotification(
           coachId,
-          `${getAthlete.name || 'An athlete'} requested a session on ${appointmentDate.toISOString().slice(0, 10)}`,
+          `${getAthlete.name || 'An athlete'} ${isUpdatingPending ? 'updated a pending session request' : 'requested a session'} on ${appointmentDate.toISOString().slice(0, 10)}`,
           NotificationType.BOOKING_CREATED,
           athleteId,
           booking.id,
@@ -1091,6 +1137,7 @@ export class BookingsService {
           booking,
           clientSecret: paymentIntent.client_secret,
           payment_intent_id: paymentIntent.id,
+          updated_pending_booking: isUpdatingPending,
         };
       }
 
@@ -1113,8 +1160,16 @@ export class BookingsService {
         currency: sessionPackage.currency ?? baseData.currency,
       };
 
-      // create booking record for package (pending payment)
-      const booking = await this.prisma.booking.create({ data: packageData });
+      // create or update booking record for package (pending payment)
+      const booking = isUpdatingPending
+        ? await this.prisma.booking.update({
+            where: { id: existingBooking!.id },
+            data: {
+              ...packageData,
+              status: 'PENDING',
+            },
+          })
+        : await this.prisma.booking.create({ data: packageData });
 
       // ensure stripe customer
       let customerId = getAthlete.billing_id;
@@ -1134,6 +1189,32 @@ export class BookingsService {
           });
         } catch (err) {
           console.error('Failed to create stripe customer', err);
+        }
+      }
+
+      // If this is a pending booking update, best-effort cancel previous uncaptured payment intent.
+      if (isUpdatingPending && booking.payment_transaction_id) {
+        const previousTx = await this.prisma.paymentTransaction.findUnique({
+          where: { id: booking.payment_transaction_id },
+        });
+        if (
+          previousTx?.reference_number &&
+          ['pending', 'authorized', 'confirmed'].includes(
+            String(previousTx.status || '').toLowerCase(),
+          )
+        ) {
+          try {
+            await StripePayment.cancelPaymentIntent(previousTx.reference_number);
+            await this.prisma.paymentTransaction.update({
+              where: { id: previousTx.id },
+              data: { status: 'cancelled' },
+            });
+          } catch (err) {
+            this.logger.warn(
+              `Failed to cancel previous package payment intent for booking ${booking.id}`,
+              err as any,
+            );
+          }
         }
       }
 
@@ -1170,20 +1251,23 @@ export class BookingsService {
         data: { payment_transaction_id: tx.id },
       });
 
-      // notify coach about new booking request
+      // notify coach about new/updated booking request
       await this.createNotification(
         coachId,
-        `${getAthlete.name || 'An athlete'} requested a session package on ${appointmentDate.toISOString().slice(0, 10)}`,
+        `${getAthlete.name || 'An athlete'} ${isUpdatingPending ? 'updated a pending session package request' : 'requested a session package'} on ${appointmentDate.toISOString().slice(0, 10)}`,
         NotificationType.BOOKING_CREATED,
         athleteId,
         booking.id,
       );
 
       return {
-        message: 'Session booking created (awaiting payment)',
+        message: isUpdatingPending
+          ? 'Session booking updated (awaiting payment)'
+          : 'Session booking created (awaiting payment)',
         booking,
         clientSecret: paymentIntent.client_secret,
         payment_intent_id: paymentIntent.id,
+        updated_pending_booking: isUpdatingPending,
       };
     } catch (error) {
       console.error('bookAppointment error:', error);
@@ -1218,11 +1302,17 @@ export class BookingsService {
 
     // Get total count
     const totalCount = await this.prisma.booking.count({
-      where: { user_id: athleteId },
+      where: {
+        user_id: athleteId,
+        status: 'CONFIRMED',
+      },
     });
 
     const bookings = await this.prisma.booking.findMany({
-      where: { user_id: athleteId },
+      where: {
+        user_id: athleteId,
+        status: 'CONFIRMED',
+      },
       select: {
         id: true,
         coach_id: true,
@@ -1387,6 +1477,7 @@ export class BookingsService {
     const bookings = await this.prisma.booking.findMany({
       where: {
         user_id: athleteId,
+        status: 'CONFIRMED',
         appointment_date: { gte: start, lt: end },
       },
       select: {
