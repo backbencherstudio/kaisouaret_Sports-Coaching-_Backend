@@ -304,10 +304,16 @@ export class MessageService {
         if (message.attachment) {
           const storedFile = String(message.attachment.file || '');
           const isAbsoluteUrl = /^https?:\/\//i.test(storedFile);
+          const attachmentPrefix = appConfig().storageUrl.attachment;
+          const normalizedKey =
+            storedFile.startsWith(`${attachmentPrefix}/`) ||
+            storedFile === attachmentPrefix
+              ? storedFile
+              : `${attachmentPrefix}/${storedFile}`;
 
           message.attachment['file_url'] = isAbsoluteUrl
             ? storedFile
-            : SazedStorage.url(appConfig().storageUrl.attachment + storedFile);
+            : SazedStorage.url(normalizedKey);
         }
       }
 
