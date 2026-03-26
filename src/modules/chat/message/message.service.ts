@@ -262,20 +262,6 @@ export class MessageService {
         }
       }
 
-      // add image url
-      for (const message of messages) {
-        if (message.sender && message.sender.avatar) {
-          message.sender['avatar_url'] = SazedStorage.url(
-            appConfig().storageUrl.avatar + message.sender.avatar,
-          );
-        }
-        if (message.receiver && message.receiver.avatar) {
-          message.receiver['avatar_url'] = SazedStorage.url(
-            appConfig().storageUrl.avatar + message.receiver.avatar,
-          );
-        }
-      }
-
       // Fetch custom offers for messages that contain custom offer data
       const messagesWithOffers = await Promise.all(
         messages.map(async (msg: any) => {
