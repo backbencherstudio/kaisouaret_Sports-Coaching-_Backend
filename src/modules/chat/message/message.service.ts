@@ -33,6 +33,48 @@ export class MessageService {
     private readonly notificationsService: NotificationsService,
   ) {}
 
+  private normalizeStoredFilePath(
+    uploadResult: any,
+    fallbackKey: string,
+  ): string {
+    if (!uploadResult) {
+      return fallbackKey;
+    }
+
+    if (typeof uploadResult === 'string') {
+      return uploadResult;
+    }
+
+    // AWS/MinIO upload response shape
+    if (uploadResult.key && typeof uploadResult.key === 'string') {
+      return uploadResult.key;
+    }
+
+    if (uploadResult.Key && typeof uploadResult.Key === 'string') {
+      return uploadResult.Key;
+    }
+
+    if (uploadResult.Location && typeof uploadResult.Location === 'string') {
+      try {
+        const parsed = new URL(uploadResult.Location);
+        const pathWithoutPrefix = parsed.pathname.replace(/^\/+/, '');
+        const bucket = uploadResult.Bucket
+          ? String(uploadResult.Bucket).replace(/^\/+|\/+$/g, '')
+          : '';
+
+        if (bucket && pathWithoutPrefix.startsWith(`${bucket}/`)) {
+          return pathWithoutPrefix.substring(bucket.length + 1);
+        }
+
+        return pathWithoutPrefix || fallbackKey;
+      } catch {
+        return uploadResult.Location;
+      }
+    }
+
+    return fallbackKey;
+  }
+
   private emitConversationMessage(
     conversationId: string,
     message: {
@@ -103,9 +145,13 @@ export class MessageService {
         try {
           const fileName = `message_${Date.now()}_${createMessageDto.file.originalname}`;
           const filePath = `${appConfig().storageUrl.attachment}/${fileName}`;
-          const savedPath = await SazedStorage.put(
+          const uploadResult = await SazedStorage.put(
             filePath,
             createMessageDto.file.buffer,
+          );
+          const storedFilePath = this.normalizeStoredFilePath(
+            uploadResult,
+            filePath,
           );
 
           // Detect media format based on MIME type
@@ -123,7 +169,7 @@ export class MessageService {
             name: createMessageDto.file.originalname,
             type: mimeType,
             size: createMessageDto.file.size,
-            file: savedPath,
+            file: storedFilePath,
             file_alt: createMessageDto.file.originalname,
             format: format,
           };
@@ -256,9 +302,12 @@ export class MessageService {
       // add attachment url
       for (const message of messages) {
         if (message.attachment) {
-          message.attachment['file_url'] = SazedStorage.url(
-            appConfig().storageUrl.attachment + message.attachment.file,
-          );
+          const storedFile = String(message.attachment.file || '');
+          const isAbsoluteUrl = /^https?:\/\//i.test(storedFile);
+
+          message.attachment['file_url'] = isAbsoluteUrl
+            ? storedFile
+            : SazedStorage.url(appConfig().storageUrl.attachment + storedFile);
         }
       }
 
