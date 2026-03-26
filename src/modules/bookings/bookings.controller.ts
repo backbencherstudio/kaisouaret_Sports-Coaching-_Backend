@@ -109,12 +109,14 @@ export class BookingsController {
     @GetUser('userId') athleteId: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('status') status?: string,
   ) {
     console.log('hit in all booking');
     return this.bookingsService.getAthleteBookings(
       athleteId,
       Number(page) || 1,
       Number(limit) || 10,
+      status,
     );
   }
 
@@ -123,9 +125,14 @@ export class BookingsController {
   async getAthleteBookingsByDate(
     @GetUser('userId') athleteId: string,
     @Param('date') date: string,
+    @Query('status') status?: string,
   ) {
     console.log('hit in the booking by date');
-    return this.bookingsService.getAthleteBookingsByDate(athleteId, date);
+    return this.bookingsService.getAthleteBookingsByDate(
+      athleteId,
+      date,
+      status,
+    );
   }
 
   // (booking-by-id and token endpoints are defined later to avoid route-order collisions)
@@ -164,11 +171,13 @@ export class BookingsController {
     @GetUser('userId') coachId: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('status') status?: string,
   ) {
     return this.bookingsService.getCoachBookings(
       coachId,
       Number(page) || 1,
       Number(limit) || 10,
+      status,
     );
   }
 
@@ -177,8 +186,9 @@ export class BookingsController {
   async getCoachBookingsByDate(
     @GetUser('userId') coachId: string,
     @Param('date') date: string,
+    @Query('status') status?: string,
   ) {
-    return this.bookingsService.getCoachBookingsByDate(coachId, date);
+    return this.bookingsService.getCoachBookingsByDate(coachId, date, status);
   }
 
   @ApiOperation({ summary: 'get a booking by coach' })
