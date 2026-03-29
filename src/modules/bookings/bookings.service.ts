@@ -1075,7 +1075,9 @@ export class BookingsService {
             )
           ) {
             try {
-              await StripePayment.cancelPaymentIntent(previousTx.reference_number);
+              await StripePayment.cancelPaymentIntent(
+                previousTx.reference_number,
+              );
               await this.prisma.paymentTransaction.update({
                 where: { id: previousTx.id },
                 data: { status: 'cancelled' },
@@ -1204,7 +1206,9 @@ export class BookingsService {
           )
         ) {
           try {
-            await StripePayment.cancelPaymentIntent(previousTx.reference_number);
+            await StripePayment.cancelPaymentIntent(
+              previousTx.reference_number,
+            );
             await this.prisma.paymentTransaction.update({
               where: { id: previousTx.id },
               data: { status: 'cancelled' },
@@ -1297,12 +1301,7 @@ export class BookingsService {
     if (!athleteId) throw new BadRequestException('Athlete ID is required');
 
     const normalizedStatus = status?.trim().toUpperCase();
-    const allowedStatuses = [
-      'PENDING',
-      'CONFIRMED',
-      'CANCELLED',
-      'COMPLETED',
-    ];
+    const allowedStatuses = ['PENDING', 'CONFIRMED', 'CANCELLED', 'COMPLETED'];
 
     if (normalizedStatus && !allowedStatuses.includes(normalizedStatus)) {
       throw new BadRequestException(
@@ -1462,12 +1461,7 @@ export class BookingsService {
     if (!athleteId) throw new BadRequestException('Athlete ID is required');
 
     const normalizedStatus = status?.trim().toUpperCase();
-    const allowedStatuses = [
-      'PENDING',
-      'CONFIRMED',
-      'CANCELLED',
-      'COMPLETED',
-    ];
+    const allowedStatuses = ['PENDING', 'CONFIRMED', 'CANCELLED', 'COMPLETED'];
 
     if (normalizedStatus && !allowedStatuses.includes(normalizedStatus)) {
       throw new BadRequestException(
@@ -1809,6 +1803,12 @@ export class BookingsService {
           : Promise.resolve([]),
       ]);
 
+    const formatBadgeIconUrl = (icon: string) => {
+      if (!icon) return null;
+      if (icon.startsWith('http')) return icon;
+      return `${process.env.MEDIA_BASE_URL || ''}${icon}`;
+    };
+
     response = {
       ...response,
       premiumFeatures: {
@@ -1819,7 +1819,7 @@ export class BookingsService {
           userBadges.map((ub) => ({
             id: ub.id,
             earnedAt: ub.earned_at,
-            badge: ub.badge,
+            badge: { ...ub.badge, icon: formatBadgeIconUrl(ub.badge.icon) },
             progress: ub.progress,
           })) || [],
       },
@@ -1845,12 +1845,7 @@ export class BookingsService {
     if (!coachId) throw new BadRequestException('Coach ID is required');
 
     const normalizedStatus = status?.trim().toUpperCase();
-    const allowedStatuses = [
-      'PENDING',
-      'CONFIRMED',
-      'CANCELLED',
-      'COMPLETED',
-    ];
+    const allowedStatuses = ['PENDING', 'CONFIRMED', 'CANCELLED', 'COMPLETED'];
 
     if (normalizedStatus && !allowedStatuses.includes(normalizedStatus)) {
       throw new BadRequestException(
@@ -1945,20 +1940,11 @@ export class BookingsService {
     };
   }
 
-  async getCoachBookingsByDate(
-    coachId: string,
-    date: string,
-    status?: string,
-  ) {
+  async getCoachBookingsByDate(coachId: string, date: string, status?: string) {
     if (!coachId) throw new BadRequestException('Coach ID is required');
 
     const normalizedStatus = status?.trim().toUpperCase();
-    const allowedStatuses = [
-      'PENDING',
-      'CONFIRMED',
-      'CANCELLED',
-      'COMPLETED',
-    ];
+    const allowedStatuses = ['PENDING', 'CONFIRMED', 'CANCELLED', 'COMPLETED'];
 
     if (normalizedStatus && !allowedStatuses.includes(normalizedStatus)) {
       throw new BadRequestException(
