@@ -661,6 +661,38 @@ export class AuthService {
     }
   }
 
+  async getCoachProfileVisibility(userId: string) {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+      });
+
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+
+      if (user.type !== 'coach') {
+        throw new BadRequestException(
+          'Only coaches can have profile visibility settings',
+        );
+      }
+
+      const coachProfile = await this.prisma.coachProfile.findUnique({
+        where: { user_id: userId },
+        select: { status: true },
+      });
+
+      return {
+        success: true,
+        isVisible: coachProfile?.status === 1,
+      };
+    } catch (error) {
+      throw new BadRequestException(
+        error?.message ?? 'Failed to get coach profile visibility',
+      );
+    }
+  }
+
   async validateUser(
     email: string,
     pass: string,

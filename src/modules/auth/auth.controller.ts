@@ -283,6 +283,27 @@ export class AuthController {
     }
   }
 
+  @ApiOperation({ summary: 'Get coach profile visibility' })
+  @UseGuards(JwtAuthGuard)
+  @Get('coach-profile-visibility')
+  async getCoachProfileVisibility(@Req() req: Request) {
+    try {
+      const user_id = req.user.userId;
+      const response = await this.authService.getCoachProfileVisibility(user_id);
+      return response;
+    } catch (error) {
+      // Re-throw HttpException to preserve status codes
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        error?.message ?? 'Failed to get coach profile visibility',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
+
   @ApiOperation({ summary: 'Refresh token' })
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
