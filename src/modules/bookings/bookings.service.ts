@@ -10,6 +10,8 @@ import * as crypto from 'crypto';
 import { UpdateBookingDto } from './dto/update-booking.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { StripePayment } from 'src/common/lib/Payment/stripe/StripePayment';
+import appConfig from 'src/config/app.config';
+import { SazedStorage } from 'src/common/lib/Disk/SazedStorage';
 import {
   NotificationsService,
   NotificationType,
@@ -1815,6 +1817,16 @@ export class BookingsService {
         normalizedIcon.startsWith('data:')
       ) {
         return normalizedIcon;
+      }
+
+      const encodedIcon = encodeURIComponent(normalizedIcon);
+
+      // Use storage url builder to keep output consistent with badge/admin modules.
+      try {
+        return SazedStorage.url(`${appConfig().storageUrl.photo}/${encodedIcon}`);
+      } catch {
+        // Fallback to env-based URL assembly if storage config is unavailable.
+                
       }
 
       const assetsBaseUrl = (process.env.ASSETS_BASE_URL || '')
