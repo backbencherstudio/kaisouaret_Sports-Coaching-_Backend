@@ -123,7 +123,9 @@ export class MessageService {
     const attachment = message.attachment
       ? {
           ...message.attachment,
-          file_url: this.buildAttachmentFileUrl(String(message.attachment.file || '')),
+          file_url: this.buildAttachmentFileUrl(
+            String(message.attachment.file || ''),
+          ),
         }
       : null;
 
@@ -147,6 +149,7 @@ export class MessageService {
       sender_id: string | null;
       receiver_id: string | null;
       conversation_id: string | null;
+      booking_id?: string | null;
       message: string | null;
       status: MessageStatus | null;
       created_at: Date;
@@ -159,6 +162,7 @@ export class MessageService {
       sender_id: message.sender_id,
       receiver_id: message.receiver_id,
       conversation_id: message.conversation_id,
+      booking_id: message.booking_id || null,
       message: message.message,
       attachment_id: message.attachment_id || null,
       created_at: message.created_at,
@@ -529,6 +533,7 @@ export class MessageService {
 
       this.emitConversationMessage(customOfferDto.conversation_id, message, {
         custom_offer: offerResult?.data,
+        booking_id: customOfferDto.booking_id,
         message_type: 'CUSTOM_OFFER_SENT',
       });
 
