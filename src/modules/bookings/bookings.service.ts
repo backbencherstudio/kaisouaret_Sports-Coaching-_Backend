@@ -1803,10 +1803,26 @@ export class BookingsService {
           : Promise.resolve([]),
       ]);
 
-    const formatBadgeIconUrl = (icon: string) => {
+    const formatBadgeIconUrl = (icon?: string | null) => {
       if (!icon) return null;
-      if (icon.startsWith('http')) return icon;
-      return `${process.env.MEDIA_BASE_URL || ''}${icon}`;
+
+      const normalizedIcon = String(icon).trim();
+      if (!normalizedIcon) return null;
+
+      // Keep already absolute URLs or data URLs unchanged.
+      if (
+        /^(https?:)?\/\//i.test(normalizedIcon) ||
+        normalizedIcon.startsWith('data:')
+      ) {
+        return normalizedIcon;
+      }
+
+      const assetsBaseUrl = (process.env.ASSETS_BASE_URL || '')
+        .trim()
+        .replace(/\/+$/, '');
+      const iconPath = normalizedIcon.replace(/^\/+/, '');
+
+      return assetsBaseUrl ? `${assetsBaseUrl}/${iconPath}` : iconPath;
     };
 
     response = {
@@ -1816,12 +1832,16 @@ export class BookingsService {
         coachNotes: coachNotes || [],
         onDemandTips: onDemandTips || [],
         badgesAndRewards:
-          userBadges.map((ub) => ({
-            id: ub.id,
-            earnedAt: ub.earned_at,
-            badge: { ...ub.badge, icon: formatBadgeIconUrl(ub.badge.icon) },
-            progress: ub.progress,
-          })) || [],
+          userBadges.map((ub) => {
+            const badgeIconUrl = formatBadgeIconUrl(ub.badge?.icon);
+
+            return {
+              id: ub.id,
+              earnedAt: ub.earned_at,
+              badge: ub.badge ? { ...ub.badge, icon: badgeIconUrl } : null,
+              progress: ub.progress,
+            };
+          }) || [],
       },
     };
 

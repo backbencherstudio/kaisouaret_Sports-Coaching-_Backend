@@ -362,7 +362,7 @@ export class MessageService {
           conversation_id: conversation_id,
         },
         orderBy: {
-          created_at: 'asc',
+          created_at: 'desc',
         },
         select: {
           id: true,
