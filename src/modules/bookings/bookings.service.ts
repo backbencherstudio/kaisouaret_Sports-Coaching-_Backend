@@ -1137,6 +1137,15 @@ export class BookingsService {
           booking.id,
         );
 
+        // notify athlete about pending booking
+        await this.createNotification(
+          athleteId,
+          `Your session ${isUpdatingPending ? 'update' : 'booking'} with ${getCoach.name} on ${appointmentDate.toISOString().slice(0, 10)} is pending payment.`,
+          NotificationType.BOOKING_CREATED,
+          coachId,
+          booking.id,
+        );
+
         return {
           booking,
           clientSecret: paymentIntent.client_secret,
@@ -1823,10 +1832,11 @@ export class BookingsService {
 
       // Use storage url builder to keep output consistent with badge/admin modules.
       try {
-        return SazedStorage.url(`${appConfig().storageUrl.photo}/${encodedIcon}`);
+        return SazedStorage.url(
+          `${appConfig().storageUrl.photo}/${encodedIcon}`,
+        );
       } catch {
         // Fallback to env-based URL assembly if storage config is unavailable.
-                
       }
 
       const assetsBaseUrl = (process.env.ASSETS_BASE_URL || '')
