@@ -105,4 +105,17 @@ export class DateHelper {
     }
     return age;
   }
+
+  // Format date and time as 'Month Day, Year, HH:MM AM/PM'
+  static formatDateTime(date: number | string | Date) {
+    const d = new Date(date);
+    return d.toLocaleString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    });
+  }
 }

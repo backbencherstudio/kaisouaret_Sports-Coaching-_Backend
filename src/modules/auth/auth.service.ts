@@ -28,6 +28,7 @@ import {
   NotificationsService,
   NotificationType,
 } from '../notifications/notifications.service';
+// const { DateHelper } = await import('../../common/helper/date.helper');
 
 @Injectable()
 export class AuthService {
@@ -610,6 +611,18 @@ export class AuthService {
         });
       }
 
+      // Send account updated notification
+      try {
+        await this.notificationsService.sendNotification({
+          type: NotificationType.ACCOUNT_UPDATED,
+          recipient_id: userId,
+          variables: {
+            user_name: user.name,
+          },
+        });
+      } catch (error) {
+        console.error('Failed to send account updated notification:', error);
+      }
       return {
         success: true,
         message: 'Profile updated successfully',
@@ -775,7 +788,7 @@ export class AuthService {
           recipient_id: user.id,
           variables: {
             user_name: user.name,
-            login_time: new Date().toISOString(),
+            login_time: DateHelper.formatDateTime(new Date()),
           },
         });
       } catch (error) {
@@ -910,6 +923,18 @@ export class AuthService {
         }
       }
 
+      // Send account updated notification
+      try {
+        await this.notificationsService.sendNotification({
+          type: NotificationType.ACCOUNT_UPDATED,
+          recipient_id: userId,
+          variables: {
+            user_name: existingUser.name,
+          },
+        });
+      } catch (error) {
+        console.error('Failed to send account updated notification:', error);
+      }
       return {
         success: true,
         message: 'Profile updated successfully',
@@ -1281,7 +1306,18 @@ export class AuthService {
           email_verified_at: new Date(Date.now()),
         },
       });
-
+      // Send email verified notification
+      try {
+        await this.notificationsService.sendNotification({
+          type: NotificationType.EMAIL_VERIFIED,
+          recipient_id: user.id,
+          variables: {
+            user_name: user.name,
+          },
+        });
+      } catch (error) {
+        console.error('Failed to send email verified notification:', error);
+      }
       return {
         success: true,
         message: 'Email verified successfully',
@@ -1377,6 +1413,18 @@ export class AuthService {
         console.error('Failed to send password change notification:', error);
       }
 
+      // Send password changed notification
+      try {
+        await this.notificationsService.sendNotification({
+          type: NotificationType.PASSWORD_CHANGED,
+          recipient_id: user.id,
+          variables: {
+            user_name: user.name,
+          },
+        });
+      } catch (error) {
+        console.error('Failed to send password changed notification:', error);
+      }
       return {
         success: true,
         message: 'Password updated successfully',
@@ -1470,6 +1518,18 @@ export class AuthService {
         token: token,
       });
 
+      // Send account updated notification
+      try {
+        await this.notificationsService.sendNotification({
+          type: NotificationType.ACCOUNT_UPDATED,
+          recipient_id: user.id,
+          variables: {
+            user_name: user.name,
+          },
+        });
+      } catch (error) {
+        console.error('Failed to send account updated notification:', error);
+      }
       return {
         success: true,
         message: 'Email updated successfully',
