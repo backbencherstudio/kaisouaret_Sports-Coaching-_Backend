@@ -306,17 +306,17 @@ export class AuthController {
 
   @ApiOperation({ summary: 'Refresh token' })
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
+  // @UseGuards(JwtAuthGuard)
   @Post('refresh-token')
   async refreshToken(
     @Req() req: Request,
     @Body() body: { refresh_token: string },
   ) {
     try {
-      const user_id = req.user.userId;
+      // const user_id = req.user.userId;
 
       const response = await this.authService.refreshToken(
-        user_id,
+        // user_id,
         body.refresh_token,
       );
 
