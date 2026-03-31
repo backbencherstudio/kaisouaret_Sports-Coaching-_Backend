@@ -768,6 +768,7 @@ export class AuthService {
         throw new NotFoundException('User not found');
       }
 
+      
       // // Check if user already logged in on another device
       // const existingToken = await this.redis.get(`refresh_token:${user.id}`);
 
