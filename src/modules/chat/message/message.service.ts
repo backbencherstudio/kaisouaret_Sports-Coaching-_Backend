@@ -739,7 +739,7 @@ export class MessageService {
         conversation_id: body.conversation_id,
         sender_id: athleteId,
         receiver_id: booking.coach_id,
-        message: `Custom offer accepted. Payment pending: $${dueAmount}.`,
+        message: `Custom offer accepted.`,
         status: MessageStatus.SENT,
       },
     });
