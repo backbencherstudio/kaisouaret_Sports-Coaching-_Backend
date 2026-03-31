@@ -289,7 +289,8 @@ export class AuthController {
   async getCoachProfileVisibility(@Req() req: Request) {
     try {
       const user_id = req.user.userId;
-      const response = await this.authService.getCoachProfileVisibility(user_id);
+      const response =
+        await this.authService.getCoachProfileVisibility(user_id);
       return response;
     } catch (error) {
       // Re-throw HttpException to preserve status codes
@@ -302,7 +303,6 @@ export class AuthController {
       );
     }
   }
-
 
   @ApiOperation({ summary: 'Refresh token' })
   @ApiBearerAuth()

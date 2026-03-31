@@ -521,7 +521,7 @@ export class MessageService {
           booking_id: customOfferDto.booking_id,
           sender_id: coachId,
           receiver_id: booking.user_id,
-          message: `Custom offer sent: ${offerTitle} for ${memberCount} members. Total: $${totalAmount}. Due: $${dueAmount}.`,
+          message: `Custom offer: ${offerTitle} for ${memberCount} members. Total: $${totalAmount}. Due: $${dueAmount}.`,
           status: MessageStatus.SENT,
         },
       });
