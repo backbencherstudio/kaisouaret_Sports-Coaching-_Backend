@@ -768,17 +768,27 @@ export class AuthService {
         throw new NotFoundException('User not found');
       }
 
+      // Check if user already logged in on another device
+      const existingToken = await this.redis.get(`refresh_token:${user.id}`);
+
+      if (existingToken) {
+        throw new BadRequestException(
+          'You are already logged in on another device. Please logout first to login again.',
+        );
+      }
+
       const payload = { email: email, sub: userId };
 
+      // Generate tokens
       const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
       const refreshToken = this.jwtService.sign(payload, { expiresIn: '7d' });
 
-      // store refreshToken
+      // Store refresh token in Redis
       await this.redis.set(
         `refresh_token:${user.id}`,
         refreshToken,
         'EX',
-        60 * 60 * 24 * 7, // 7 days in seconds
+        60 * 60 * 24 * 7, // 7 days
       );
 
       // Send login notification
@@ -810,7 +820,7 @@ export class AuthService {
       if (error instanceof NotFoundException) {
         throw error;
       }
-      // Throw generic error
+
       throw new BadRequestException(error?.message ?? 'Failed to login');
     }
   }
