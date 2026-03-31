@@ -872,9 +872,12 @@ export class MessageService {
   }
 
   async updateBookingViaChat(coachId: string, body: BookingUpdateViaChatDto) {
+
     if (!coachId) throw new BadRequestException('Coach ID is required');
+
     if (!body?.booking_id)
       throw new BadRequestException('Booking ID is required');
+    
     if (!body?.conversation_id)
       throw new BadRequestException('Conversation ID is required');
 
@@ -916,7 +919,7 @@ export class MessageService {
 
     this.emitConversationMessage(conversation_id, message, {
       message_type: 'BOOKING_UPDATED',
-      updated_fields: changedFields,
+      updated_booking: result?.data || null,
     });
 
     return result;
