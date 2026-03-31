@@ -768,14 +768,15 @@ export class AuthService {
         throw new NotFoundException('User not found');
       }
 
-      // Check if user already logged in on another device
-      const existingToken = await this.redis.get(`refresh_token:${user.id}`);
+      
+      // // Check if user already logged in on another device
+      // const existingToken = await this.redis.get(`refresh_token:${user.id}`);
 
-      if (existingToken) {
-        throw new BadRequestException(
-          'You are already logged in on another device. Please logout first to login again.',
-        );
-      }
+      // if (existingToken) {
+      //   throw new BadRequestException(
+      //     'You are already logged in on another device. Please logout first to login again.',
+      //   );
+      // }
 
       const payload = { email: email, sub: userId };
 
