@@ -4494,7 +4494,9 @@ export class BookingsService {
       where: {
         coach_id: coachId,
         user_id: athleteId,
-        status: 'COMPLETED',
+        status: {
+          in: ['CONFIRMED', 'COMPLETED'],
+        },
       },
     });
 
