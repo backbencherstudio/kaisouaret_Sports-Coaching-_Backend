@@ -760,6 +760,72 @@ export class AuthService {
     }
   }
 
+  // async login({ email, userId }) {
+  //   try {
+  //     const user = await UserRepository.getUserDetails(userId);
+
+  //     if (!user) {
+  //       throw new NotFoundException('User not found');
+  //     }
+
+  //     // // Check if user already logged in on another device
+  //     const existingToken = await this.redis.get(`refresh_token:${user.id}`);
+  //     console.log('existing Token', existingToken);
+
+  //     // if (existingToken) {
+  //     //   throw new BadRequestException(
+  //     //     'You are already logged in on another device. Please logout first to login again.',
+  //     //   );
+  //     // }
+
+  //     const payload = { email: email, sub: userId };
+
+  //     // Generate tokens
+  //     const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
+  //     const refreshToken = this.jwtService.sign(payload, { expiresIn: '7d' });
+
+  //     // Store refresh token in Redis
+  //     await this.redis.set(
+  //       `refresh_token:${user.id}`,
+  //       refreshToken,
+  //       'EX',
+  //       60 * 60 * 24 * 7, // 7 days
+  //     );
+
+  //     // Send login notification
+  //     try {
+  //       await this.notificationsService.sendNotification({
+  //         type: NotificationType.USER_LOGGED_IN,
+  //         recipient_id: user.id,
+  //         variables: {
+  //           user_name: user.name,
+  //           login_time: DateHelper.formatDateTime(new Date()),
+  //         },
+  //       });
+  //     } catch (error) {
+  //       console.error('Failed to send login notification:', error);
+  //     }
+
+  //     return {
+  //       success: true,
+  //       message: 'Logged in successfully',
+  //       authorization: {
+  //         type: 'bearer',
+  //         access_token: accessToken,
+  //         refresh_token: refreshToken,
+  //       },
+  //       type: user.type,
+  //     };
+  //   } catch (error) {
+  //     // Re-throw NestJS exceptions
+  //     if (error instanceof NotFoundException) {
+  //       throw error;
+  //     }
+
+  //     throw new BadRequestException(error?.message ?? 'Failed to login');
+  //   }
+  // }
+
   async login({ email, userId }) {
     try {
       const user = await UserRepository.getUserDetails(userId);
@@ -768,15 +834,9 @@ export class AuthService {
         throw new NotFoundException('User not found');
       }
 
-      
-      // // Check if user already logged in on another device
-      // const existingToken = await this.redis.get(`refresh_token:${user.id}`);
-
-      // if (existingToken) {
-      //   throw new BadRequestException(
-      //     'You are already logged in on another device. Please logout first to login again.',
-      //   );
-      // }
+      // get all existing refresh tokens for this user
+      // const existingTokens = await this.redis.keys(`refresh_token:*`);
+      // console.log('existing Tokens', existingTokens);
 
       const payload = { email: email, sub: userId };
 
@@ -784,10 +844,10 @@ export class AuthService {
       const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
       const refreshToken = this.jwtService.sign(payload, { expiresIn: '7d' });
 
-      // Store refresh token in Redis
+      // Store refresh token as key
       await this.redis.set(
-        `refresh_token:${user.id}`,
-        refreshToken,
+        `refresh_token:${refreshToken}`,
+        user.id,
         'EX',
         60 * 60 * 24 * 7, // 7 days
       );
@@ -817,7 +877,6 @@ export class AuthService {
         type: user.type,
       };
     } catch (error) {
-      // Re-throw NestJS exceptions
       if (error instanceof NotFoundException) {
         throw error;
       }
@@ -1094,25 +1153,29 @@ export class AuthService {
   //     );
   //   }
   // }
-
-  async refreshToken(user_id: string, refreshToken: string) {
+  async refreshToken(refreshToken: string) {
     try {
-      if (!user_id) {
-        throw new NotFoundException('User not found');
+      if (!refreshToken) {
+        throw new UnauthorizedException('Refresh token required');
       }
 
-      const storedToken = await this.redis.get(`refresh_token:${user_id}`);
+      // Check if refresh token exists in Redis
+      const userId = await this.redis.get(`refresh_token:${refreshToken}`);
 
-      if (!storedToken || storedToken != refreshToken) {
+      console.log('userId :>> ', userId);
+
+      if (!userId) {
         throw new UnauthorizedException('Invalid or expired refresh token');
       }
 
-      const userDetails = await UserRepository.getUserDetails(user_id);
+      const userDetails = await UserRepository.getUserDetails(userId);
+
       if (!userDetails) {
         throw new NotFoundException('User not found');
       }
 
       const payload = { email: userDetails.email, sub: userDetails.id };
+
       const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
 
       return {
@@ -1123,19 +1186,60 @@ export class AuthService {
         },
       };
     } catch (error) {
-      // Re-throw NestJS exceptions
       if (
         error instanceof UnauthorizedException ||
         error instanceof NotFoundException
       ) {
         throw error;
       }
-      // Throw generic error
+
       throw new BadRequestException(
         error?.message ?? 'Failed to refresh token',
       );
     }
   }
+
+  // async refreshToken(user_id: string, refreshToken: string) {
+  //   try {
+  //     if (!user_id) {
+  //       throw new NotFoundException('User not found');
+  //     }
+
+  //     const storedToken = await this.redis.get(`refresh_token:${user_id}`);
+
+  //     if (!storedToken || storedToken != refreshToken) {
+  //       throw new UnauthorizedException('Invalid or expired refresh token');
+  //     }
+
+  //     const userDetails = await UserRepository.getUserDetails(user_id);
+  //     if (!userDetails) {
+  //       throw new NotFoundException('User not found');
+  //     }
+
+  //     const payload = { email: userDetails.email, sub: userDetails.id };
+  //     const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
+
+  //     return {
+  //       success: true,
+  //       authorization: {
+  //         type: 'bearer',
+  //         access_token: accessToken,
+  //       },
+  //     };
+  //   } catch (error) {
+  //     // Re-throw NestJS exceptions
+  //     if (
+  //       error instanceof UnauthorizedException ||
+  //       error instanceof NotFoundException
+  //     ) {
+  //       throw error;
+  //     }
+  //     // Throw generic error
+  //     throw new BadRequestException(
+  //       error?.message ?? 'Failed to refresh token',
+  //     );
+  //   }
+  // }
 
   async revokeRefreshToken(user_id: string) {
     try {
