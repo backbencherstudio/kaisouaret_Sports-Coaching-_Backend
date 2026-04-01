@@ -370,6 +370,22 @@ export class MessageService {
         },
         select: {
           id: true,
+          booking_id: true,
+          booking: {
+            select: {
+              id: true,
+              title: true,
+              appointment_date: true,
+              session_time: true,
+              session_time_display: true,
+              duration_minutes: true,
+              number_of_members: true,
+              session_price: true,
+              total_amount: true,
+              currency: true,
+              status: true,
+            },
+          },
           message: true,
           created_at: true,
           status: true,
@@ -872,12 +888,11 @@ export class MessageService {
   }
 
   async updateBookingViaChat(coachId: string, body: BookingUpdateViaChatDto) {
-
     if (!coachId) throw new BadRequestException('Coach ID is required');
 
     if (!body?.booking_id)
       throw new BadRequestException('Booking ID is required');
-    
+
     if (!body?.conversation_id)
       throw new BadRequestException('Conversation ID is required');
 
@@ -894,6 +909,23 @@ export class MessageService {
       updateDto,
     );
 
+    const updatedBooking = await this.prisma.booking.findUnique({
+      where: { id: booking_id },
+      select: {
+        id: true,
+        title: true,
+        appointment_date: true,
+        session_time: true,
+        session_time_display: true,
+        duration_minutes: true,
+        number_of_members: true,
+        session_price: true,
+        total_amount: true,
+        currency: true,
+        status: true,
+      },
+    });
+
     const changedFields = Object.keys(updateDto).filter(
       (key) => updateDto[key] !== undefined && updateDto[key] !== null,
     );
@@ -905,6 +937,7 @@ export class MessageService {
     const message = await this.prisma.message.create({
       data: {
         conversation_id,
+        booking_id: booking.id,
         sender_id: coachId,
         receiver_id: booking.user_id,
         message: summary,
@@ -919,8 +952,10 @@ export class MessageService {
 
     this.emitConversationMessage(conversation_id, message, {
       message_type: 'BOOKING_UPDATED',
-      updated_booking: result?.data || null,
+      updated_booking: updatedBooking || result?.data || null,
     });
+
+    console.log('Booking update result:', result);
 
     return result;
   }
