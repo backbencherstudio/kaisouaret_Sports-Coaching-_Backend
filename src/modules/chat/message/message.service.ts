@@ -929,10 +929,13 @@ export class MessageService {
     const changedFields = Object.keys(updateDto).filter(
       (key) => updateDto[key] !== undefined && updateDto[key] !== null,
     );
+    // const summary =
+    //   changedFields.length > 0
+    //     ? `Booking updated: ${changedFields.join(', ')}`
+    //     : 'Booking updated.';
+
     const summary =
-      changedFields.length > 0
-        ? `Booking updated: ${changedFields.join(', ')}`
-        : 'Booking updated.';
+      'Booking is updated with new details. Please review the changes.';
 
     const message = await this.prisma.message.create({
       data: {
