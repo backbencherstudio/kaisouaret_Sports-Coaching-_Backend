@@ -444,14 +444,16 @@ export class BookingsService {
     return {
       success: true,
       message: 'Weekend days retrieved successfully',
-      weekend_days: coachProfile?.weekend_days || [],
+      weekend_days:
+        coachProfile?.weekend_days && coachProfile.weekend_days.length > 0
+          ? coachProfile.weekend_days
+          : ['sunday'],
     };
   }
 
-  async setWeekendDays(coachId: string, weekendDays: string[]) {
+  async setWeekendDays(coachId: string, weekendDay: string) {
     if (!coachId) throw new BadRequestException('Coach ID is required');
-    if (!Array.isArray(weekendDays))
-      throw new BadRequestException('weekendDays must be an array');
+    if (!weekendDay) throw new BadRequestException('Weekend day is required');
 
     // Verify coach exists
     const getCoach = await this.prisma.user.findUnique({
@@ -484,83 +486,54 @@ export class BookingsService {
       'sat',
     ]);
 
-    // Existing weekend days
-    const existingDays = new Set((coachProfile as any).weekend_days ?? []);
+    const s = String(weekendDay).trim();
+    let normalizedDay: string;
 
-    const validated: string[] = [];
-    for (const d of weekendDays) {
-      const s = String(d).trim();
-      if (!s) continue;
-
-      // Check if it's a weekday name
-      const lowerDay = s.toLowerCase();
-      if (validWeekdays.has(lowerDay)) {
-        // Normalize to full name
-        const normalized =
-          lowerDay === 'sun'
-            ? 'sunday'
-            : lowerDay === 'mon'
-              ? 'monday'
-              : lowerDay === 'tue'
-                ? 'tuesday'
-                : lowerDay === 'wed'
-                  ? 'wednesday'
-                  : lowerDay === 'thu'
-                    ? 'thursday'
-                    : lowerDay === 'fri'
-                      ? 'friday'
-                      : lowerDay === 'sat'
-                        ? 'saturday'
-                        : lowerDay;
-
-        // Check if already exists
-        if (existingDays.has(normalized)) {
-          throw new ConflictException(
-            `${normalized} is already set as weekend day`,
-          );
-        }
-
-        validated.push(normalized);
-        existingDays.add(normalized);
-        continue;
-      }
-
+    // Check if it's a weekday name
+    const lowerDay = s.toLowerCase();
+    if (validWeekdays.has(lowerDay)) {
+      // Normalize to full name
+      normalizedDay =
+        lowerDay === 'sun'
+          ? 'sunday'
+          : lowerDay === 'mon'
+            ? 'monday'
+            : lowerDay === 'tue'
+              ? 'tuesday'
+              : lowerDay === 'wed'
+                ? 'wednesday'
+                : lowerDay === 'thu'
+                  ? 'thursday'
+                  : lowerDay === 'fri'
+                    ? 'friday'
+                    : lowerDay === 'sat'
+                      ? 'saturday'
+                      : lowerDay;
+    } else {
       // Try to parse as date YYYY-MM-DD
       const dt = new Date(s);
-      if (!isNaN(dt.getTime())) {
-        const isoDate = new Date(
-          Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate()),
-        )
-          .toISOString()
-          .slice(0, 10);
-
-        // Check if already exists
-        if (existingDays.has(isoDate)) {
-          throw new ConflictException(
-            `Date ${isoDate} is already set as weekend day`,
-          );
-        }
-
-        validated.push(isoDate);
-        existingDays.add(isoDate);
-        continue;
+      if (isNaN(dt.getTime())) {
+        throw new BadRequestException(
+          `Invalid format: ${s}. Use weekday name (monday, tuesday, etc.) or date (YYYY-MM-DD)`,
+        );
       }
-
-      throw new BadRequestException(
-        `Invalid format: ${s}. Use weekday name (monday, tuesday, etc.) or date (YYYY-MM-DD)`,
-      );
+      normalizedDay = new Date(
+        Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate()),
+      )
+        .toISOString()
+        .slice(0, 10);
     }
 
-    // Update weekend days in database
+    // Update weekend days in database - REPLACE existing with new single day
     const updated = await this.prisma.coachProfile.update({
       where: { id: coachProfile.id },
-      data: { weekend_days: Array.from(existingDays) } as any,
+      data: { weekend_days: [normalizedDay] } as any,
     } as any);
 
-    // Notify coach about weekend days update
+    // Notify coach about weekend day update
     await this.createNotification(
       coachId,
-      `${weekendDays.length} weekend day(s) have been set on your calendar.`,
+      `Weekend day has been set to ${normalizedDay} on your calendar.`,
       NotificationType.BOOKING_CREATED,
       coachId,
       coachProfile.id,
@@ -568,7 +541,7 @@ export class BookingsService {
 
     return {
       success: true,
-      message: `${weekendDays.length} weekend day(s) set successfully`,
+      message: `Weekend day set successfully`,
       weekend_days: (updated as any).weekend_days,
     } as any;
   }
@@ -597,7 +570,10 @@ export class BookingsService {
     if (!coachProfile) throw new NotFoundException('Coach profile not found');
 
     const blockedDays = coachProfile.blocked_days ?? [];
-    const weekendDays = coachProfile.weekend_days ?? [];
+    const weekendDays =
+      coachProfile.weekend_days && coachProfile.weekend_days.length > 0
+        ? coachProfile.weekend_days
+        : ['sunday'];
 
     // === Calculate 7-day range ===
     const now = new Date();
@@ -785,9 +761,14 @@ export class BookingsService {
           const profile = coach.coach_profile;
           if (!profile) return false;
 
+          const coachWeekendDays =
+            profile.weekend_days && profile.weekend_days.length > 0
+              ? profile.weekend_days
+              : ['sunday'];
+
           const blocked = this.isAppointmentBlockedManualWeekday(
             normalizedDate,
-            [...(profile.blocked_days || []), ...(profile.weekend_days || [])],
+            [...(profile.blocked_days || []), ...coachWeekendDays],
             profile.blocked_time_slots || [],
           );
           if (blocked) return false;
@@ -952,7 +933,11 @@ export class BookingsService {
 
       // check coach blocked days/time slots using manual weekday logic
       const blockedDaysArr = getCoachProfile.blocked_days || [];
-      const weekendDaysArr = (getCoachProfile as any).weekend_days || [];
+      const weekendDaysArr =
+        (getCoachProfile as any).weekend_days &&
+        (getCoachProfile as any).weekend_days.length > 0
+          ? (getCoachProfile as any).weekend_days
+          : ['sunday'];
       const combinedBlockedDays = [...blockedDaysArr, ...weekendDaysArr];
       const blockedSlotsArr = getCoachProfile.blocked_time_slots || [];
 

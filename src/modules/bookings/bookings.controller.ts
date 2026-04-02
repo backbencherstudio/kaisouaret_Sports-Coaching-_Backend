@@ -63,9 +63,9 @@ export class BookingsController {
   @Post('coach/weekend-days')
   async setWeekendDays(
     @GetUser('userId') coachId: string,
-    @Body('weekendDays') weekendDays: string[],
+    @Body('weekendDay') weekendDay: string,
   ) {
-    return this.bookingsService.setWeekendDays(coachId, weekendDays);
+    return this.bookingsService.setWeekendDays(coachId, weekendDay);
   }
 
   @ApiOperation({ summary: 'get weekend days for a coach' })
