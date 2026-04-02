@@ -373,6 +373,7 @@ export class AuthService {
           await this.prisma.coachProfile.create({
             data: {
               user_id: user.data.id,
+              weekend_days: ['sunday'],
               // Coach can set these later in setupProfile()
             },
           });
