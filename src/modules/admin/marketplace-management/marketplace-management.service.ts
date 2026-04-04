@@ -629,11 +629,7 @@ export class MarketplaceManagementService {
     const calculatedCartItems = cartItems.map((item) => {
       const product = productMap[item.product_id];
 
-      if (!product) {
-        throw new NotFoundException(
-          `Product ${item.product_id} not found in cart item ${item.id}`,
-        );
-      }
+   
 
       const unitPrice = Number(product.price) || 0;
       const quantity = item.quantity || 1;
