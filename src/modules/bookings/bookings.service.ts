@@ -2527,6 +2527,7 @@ export class BookingsService {
       id: nextBooking.id,
       appointment_date: nextBooking.appointment_date,
       session_time: nextBooking.session_time,
+      session_time_display: nextBooking.session_time_display,
       duration_minutes: nextBooking.duration_minutes,
       session_price: nextBooking.session_price,
       currency: nextBooking.currency,
