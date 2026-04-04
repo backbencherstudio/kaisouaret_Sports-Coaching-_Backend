@@ -990,6 +990,9 @@ export class BookingsService {
         }
       }
 
+      // Generate default title from coach name and appointment date
+      const defaultTitle = `Session with ${getCoach.name} on ${appointmentDate.toISOString().slice(0, 10)}`;
+
       // common booking base data
       const baseData: any = {
         user: { connect: { id: athleteId } },
@@ -1006,6 +1009,7 @@ export class BookingsService {
         location: getCoach.location || 'offline',
         notes: '',
         google_map_link: '',
+        title: defaultTitle,
       };
 
       if (!sessionPackage) {
@@ -1018,7 +1022,6 @@ export class BookingsService {
                 status: 'PENDING',
                 // Reset package-related fields when switching to single session.
                 sessionPackage: { disconnect: true },
-                title: null,
                 description: null,
                 number_of_sessions: null,
                 days_validity: null,
@@ -1148,7 +1151,7 @@ export class BookingsService {
       const packageData = {
         ...baseData,
         sessionPackage: { connect: { id: sessionPackage.id } },
-        title: sessionPackage.title,
+        title: sessionPackage.title || defaultTitle,
         description: sessionPackage.description,
         number_of_sessions: numberOfSessions,
         days_validity: sessionPackage.days_validity,
