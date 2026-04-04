@@ -2417,6 +2417,7 @@ export class BookingsService {
       id: b.id,
       appointment_date: b.appointment_date,
       session_time: b.session_time,
+      session_time_display: b.session_time_display,
       duration_minutes: b.duration_minutes,
       session_price: b.session_price,
       currency: b.currency,
