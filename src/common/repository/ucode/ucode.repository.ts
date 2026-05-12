@@ -104,18 +104,11 @@ export class UcodeRepository {
             },
           });
           if (data) {
-            // delete this token
-            // await prisma.ucode.delete({
-            //   where: {
-            //     id: data.id,
-            //   },
-            // });
             return true;
           } else {
             return false;
           }
         } else {
-          // delete this token
           await prisma.ucode.delete({
             where: {
               id: existToken.id,

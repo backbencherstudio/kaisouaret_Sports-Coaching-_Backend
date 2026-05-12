@@ -29,7 +29,7 @@ export class GoalsController {
     @GetUser('userId') userId: string,
     @Body() body: CreateGoalDto,
   ) {
-    // console.log('user id', userId);
+
     return this.goalsService.createGoal(userId, body);
   }
 

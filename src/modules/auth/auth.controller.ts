@@ -41,7 +41,7 @@ export class AuthController {
   @Get('me')
   async me(@Req() req: Request) {
     try {
-      // console.log(req.user);
+
       const user_id = req.user.userId;
 
       const response = await this.authService.me(user_id);
@@ -98,7 +98,7 @@ export class AuthController {
   //       );
   //     }
 
-  //     console.log('avatar in controller', avatar);
+
 
   //     const response = await this.authService.register({
   //       name: name,
@@ -202,7 +202,7 @@ export class AuthController {
   @Post('login')
   async login(@Req() req: Request, @Res() res: Response) {
     try {
-      // console.log("user", req.user);
+
       const user_id = req.user.id;
 
       const user_email = req.user.email;

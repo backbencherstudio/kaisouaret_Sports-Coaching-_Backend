@@ -28,7 +28,6 @@ import {
   NotificationsService,
   NotificationType,
 } from '../notifications/notifications.service';
-// const { DateHelper } = await import('../../common/helper/date.helper');
 
 @Injectable()
 export class AuthService {
@@ -761,72 +760,6 @@ export class AuthService {
     }
   }
 
-  // async login({ email, userId }) {
-  //   try {
-  //     const user = await UserRepository.getUserDetails(userId);
-
-  //     if (!user) {
-  //       throw new NotFoundException('User not found');
-  //     }
-
-  //     // // Check if user already logged in on another device
-  //     const existingToken = await this.redis.get(`refresh_token:${user.id}`);
-  //     console.log('existing Token', existingToken);
-
-  //     // if (existingToken) {
-  //     //   throw new BadRequestException(
-  //     //     'You are already logged in on another device. Please logout first to login again.',
-  //     //   );
-  //     // }
-
-  //     const payload = { email: email, sub: userId };
-
-  //     // Generate tokens
-  //     const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
-  //     const refreshToken = this.jwtService.sign(payload, { expiresIn: '7d' });
-
-  //     // Store refresh token in Redis
-  //     await this.redis.set(
-  //       `refresh_token:${user.id}`,
-  //       refreshToken,
-  //       'EX',
-  //       60 * 60 * 24 * 7, // 7 days
-  //     );
-
-  //     // Send login notification
-  //     try {
-  //       await this.notificationsService.sendNotification({
-  //         type: NotificationType.USER_LOGGED_IN,
-  //         recipient_id: user.id,
-  //         variables: {
-  //           user_name: user.name,
-  //           login_time: DateHelper.formatDateTime(new Date()),
-  //         },
-  //       });
-  //     } catch (error) {
-  //       console.error('Failed to send login notification:', error);
-  //     }
-
-  //     return {
-  //       success: true,
-  //       message: 'Logged in successfully',
-  //       authorization: {
-  //         type: 'bearer',
-  //         access_token: accessToken,
-  //         refresh_token: refreshToken,
-  //       },
-  //       type: user.type,
-  //     };
-  //   } catch (error) {
-  //     // Re-throw NestJS exceptions
-  //     if (error instanceof NotFoundException) {
-  //       throw error;
-  //     }
-
-  //     throw new BadRequestException(error?.message ?? 'Failed to login');
-  //   }
-  // }
-
   async login({ email, userId }) {
     try {
       const user = await UserRepository.getUserDetails(userId);
@@ -834,10 +767,6 @@ export class AuthService {
       if (!user) {
         throw new NotFoundException('User not found');
       }
-
-      // get all existing refresh tokens for this user
-      // const existingTokens = await this.redis.keys(`refresh_token:*`);
-      // console.log('existing Tokens', existingTokens);
 
       const payload = { email: email, sub: userId };
 
@@ -966,7 +895,7 @@ export class AuthService {
 
           coachUpdateData.hourly_currency = 'USD';
 
-          // console.log('type checking', response.type);
+    
           await this.prisma.coachProfile.upsert({
             where: { user_id: userId },
             update: coachUpdateData,

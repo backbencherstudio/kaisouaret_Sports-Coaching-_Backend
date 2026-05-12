@@ -1862,7 +1862,6 @@ export class BookingsService {
     };
   }
 
-  // async getSessionDetails(athleteId: string) {
 
   // coach bookings
 
